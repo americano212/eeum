@@ -1,0 +1,10 @@
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.9.2
+pydantic-settings==2.6.0
+openai==1.54.0
+httpx<0.28
+qdrant-client==1.12.1
+neo4j==5.25.0
+redis[hiredis]==5.2.0
+python-dotenv==1.0.1
