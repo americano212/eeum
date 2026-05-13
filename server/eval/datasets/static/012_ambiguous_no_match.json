@@ -1,0 +1,30 @@
+{
+  "id": "ambiguous_no_match",
+  "description": "요청이 모호하고 페이지에 관련 요소가 없으면 needs_more_elements=true",
+  "query": "내 주문 내역 보여줘",
+  "url": "https://news.example.com",
+  "elements": [
+    {
+      "tag": "a",
+      "text": "정치",
+      "xpath": "/html/body/nav/a[1]",
+      "href": "/politics"
+    },
+    {
+      "tag": "a",
+      "text": "경제",
+      "xpath": "/html/body/nav/a[2]",
+      "href": "/economy"
+    },
+    {
+      "tag": "a",
+      "text": "스포츠",
+      "xpath": "/html/body/nav/a[3]",
+      "href": "/sports"
+    }
+  ],
+  "expected": {
+    "needs_more_elements": true,
+    "max_actions": 0
+  }
+}

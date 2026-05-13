@@ -1,0 +1,46 @@
+{
+  "id": "search_results_click_first",
+  "description": "검색 결과 페이지에서 멈추지 말고 가장 관련 높은 결과를 click_text로 클릭",
+  "query": "쿠팡에서 검색한 결과에서 무선 마우스 첫 번째 거 보여줘",
+  "url": "https://www.coupang.com/np/search?q=%EB%AC%B4%EC%84%A0+%EB%A7%88%EC%9A%B0%EC%8A%A4",
+  "elements": [
+    {
+      "tag": "a",
+      "text": "로지텍 무선 마우스 M170",
+      "xpath": "/html/body/main/ul/li[1]/a[1]",
+      "href": "/products/1001"
+    },
+    {
+      "tag": "a",
+      "text": "삼성 무선 키보드 KB-300",
+      "xpath": "/html/body/main/ul/li[2]/a[1]",
+      "href": "/products/1002"
+    },
+    {
+      "tag": "a",
+      "text": "애플 매직 마우스",
+      "xpath": "/html/body/main/ul/li[3]/a[1]",
+      "href": "/products/1003"
+    },
+    {
+      "tag": "button",
+      "text": "필터",
+      "xpath": "/html/body/aside/button[1]",
+      "type": "button"
+    }
+  ],
+  "expected": {
+    "needs_more_elements": false,
+    "acceptable_action_sequences": [
+      [{"type": "click_text", "text": "로지텍 무선 마우스 M170"}],
+      [{"type": "click", "xpath": "/html/body/main/ul/li[1]/a[1]"}],
+      [{"type": "navigate", "url_contains": "/products/1001"}],
+      [
+        {"type": "navigate", "url_contains": "coupang"},
+        {"type": "click_text", "text": "로지텍 무선 마우스 M170"}
+      ]
+    ],
+    "must_not_click_xpaths": ["/html/body/main/ul/li[2]/a[1]", "/html/body/aside/button[1]"],
+    "must_highlight_only": []
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "id": "tab_switch_role",
+  "description": "role=tab 요소 클릭으로 탭 전환",
+  "query": "리뷰 탭으로 이동",
+  "url": "https://shop.example.com/products/1",
+  "elements": [
+    {
+      "tag": "div",
+      "text": "상세정보",
+      "aria_label": "상세정보",
+      "role": "tab",
+      "xpath": "/html/body/main/div[1]/div[1]"
+    },
+    {
+      "tag": "div",
+      "text": "리뷰",
+      "aria_label": "리뷰",
+      "role": "tab",
+      "xpath": "/html/body/main/div[1]/div[2]"
+    },
+    {
+      "tag": "div",
+      "text": "문의",
+      "aria_label": "문의",
+      "role": "tab",
+      "xpath": "/html/body/main/div[1]/div[3]"
+    }
+  ],
+  "expected": {
+    "needs_more_elements": false,
+    "acceptable_action_sequences": [
+      [{"type": "click", "xpath": "/html/body/main/div[1]/div[2]"}],
+      [{"type": "click_text", "text": "리뷰"}]
+    ],
+    "must_not_click_xpaths": ["/html/body/main/div[1]/div[1]", "/html/body/main/div[1]/div[3]"],
+    "must_highlight_only": []
+  }
+}

@@ -8,3 +8,8 @@ qdrant-client==1.12.1
 neo4j==5.25.0
 redis[hiredis]==5.2.0
 python-dotenv==1.0.1
+
+# Eval-only dependencies. Safe to keep in main requirements — small and
+# already-installed in CI. Pin loosely so we don't fight transitives.
+PyYAML==6.0.2
+playwright==1.48.0

@@ -1,0 +1,32 @@
+{
+  "id": "coupang_search_direct_url",
+  "description": "쿠팡 검색은 URL 직접 구성으로 navigate해야 함 (시스템 프롬프트 규칙)",
+  "query": "쿠팡에서 무선 마우스 찾아줘",
+  "url": "https://www.google.com",
+  "elements": [
+    {
+      "tag": "input",
+      "text": "",
+      "placeholder": "Google 검색",
+      "xpath": "/html/body/div/form/input[1]",
+      "type": "text",
+      "name": "q"
+    },
+    {
+      "tag": "button",
+      "text": "Google 검색",
+      "xpath": "/html/body/div/form/button[1]",
+      "type": "submit"
+    }
+  ],
+  "expected": {
+    "needs_more_elements": false,
+    "first_action_must_match": {
+      "type": "navigate",
+      "url_contains": "coupang.com",
+      "url_must_contain_query": "무선 마우스"
+    },
+    "must_not_click_xpaths": [],
+    "must_highlight_only": []
+  }
+}
