@@ -109,6 +109,11 @@ class HighlightAction(BaseModel):
     xpath: str
 
 
+class SiteSearchAction(BaseModel):
+    type: Literal["site_search"] = "site_search"
+    query: str
+
+
 NavigationStep = (
     NavigateAction
     | ClickAction
@@ -119,6 +124,7 @@ NavigationStep = (
     | HighlightAction
     | WaitAction
     | WaitForUserAction
+    | SiteSearchAction
 )
 
 

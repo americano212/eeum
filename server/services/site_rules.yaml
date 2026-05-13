@@ -1,0 +1,291 @@
+# 사이트별 검색 URL 템플릿 + 주의사항.
+# 새 사이트 추가 시 코드 변경 없음 — 파일만 수정.
+# 키는 hostname suffix (e.g. "coupang.com"은 "www.coupang.com"도 매치).
+# search_url 의 {query} 자리에 사용자 검색어가 URL-인코딩 되어 들어간다.
+
+sites:
+  coupang.com:
+    name: 쿠팡
+    search_url: "https://www.coupang.com/np/search?q={query}"
+    direct_services:
+      "쿠팡 주문내역": "https://my.coupang.com/"
+      "쿠팡 마이페이지": "https://my.coupang.com/"
+      "내 쿠팡": "https://my.coupang.com/"
+
+  naver.com:
+    name: 네이버
+    search_url: "https://search.naver.com/search.naver?query={query}"
+    direct_services:
+      "네이버 메일": "https://mail.naver.com"
+      "네이버메일": "https://mail.naver.com"
+      "네이버 카페": "https://cafe.naver.com"
+      "네이버카페": "https://cafe.naver.com"
+      "네이버 블로그": "https://blog.naver.com"
+      "네이버블로그": "https://blog.naver.com"
+      "네이버 지도": "https://map.naver.com"
+      "네이버지도": "https://map.naver.com"
+      "네이버 뉴스": "https://news.naver.com"
+      "네이버뉴스": "https://news.naver.com"
+      "네이버 쇼핑": "https://shopping.naver.com"
+      "네이버쇼핑": "https://shopping.naver.com"
+      "네이버페이": "https://pay.naver.com"
+      "네이버 페이": "https://pay.naver.com"
+      "네이버 웹툰": "https://comic.naver.com"
+      "네이버웹툰": "https://comic.naver.com"
+
+  youtube.com:
+    name: 유튜브
+    search_url: "https://www.youtube.com/results?search_query={query}"
+
+  google.com:
+    name: 구글
+    search_url: "https://www.google.com/search?q={query}"
+
+  gmarket.co.kr:
+    name: 지마켓
+    search_url: "https://browse.gmarket.co.kr/search?keyword={query}"
+
+  11st.co.kr:
+    name: 11번가
+    search_url: "https://search.11st.co.kr/Search.tmall?kwd={query}"
+
+  # ── 게임 ─────────────────────────────────────────
+  leagueoflegends.com:
+    name: 리그오브레전드
+    home_url: "https://www.leagueoflegends.com/ko-kr/"
+    aliases: ["롤", "리그오브레전드", "lol", "league of legends"]
+
+  nexon.com:
+    name: 넥슨
+    home_url: "https://www.nexon.com"
+    aliases: ["넥슨"]
+
+  maplestory.nexon.com:
+    name: 메이플스토리
+    home_url: "https://maplestory.nexon.com"
+    aliases: ["메이플", "메이플스토리"]
+
+  # ── 영상/스트리밍 ────────────────────────────────
+  netflix.com:
+    name: 넷플릭스
+    home_url: "https://www.netflix.com/kr/"
+    aliases: ["넷플릭스", "넷플", "netflix"]
+
+  disneyplus.com:
+    name: 디즈니플러스
+    home_url: "https://www.disneyplus.com/ko-kr"
+    aliases: ["디즈니플러스", "디플", "disney+", "disney plus"]
+
+  tving.com:
+    name: 티빙
+    home_url: "https://www.tving.com"
+    aliases: ["티빙", "tving"]
+
+  watcha.com:
+    name: 왓챠
+    home_url: "https://watcha.com"
+    aliases: ["왓챠", "watcha"]
+
+  wavve.com:
+    name: 웨이브
+    home_url: "https://www.wavve.com"
+    aliases: ["웨이브", "wavve"]
+
+  twitch.tv:
+    name: 트위치
+    home_url: "https://www.twitch.tv"
+    aliases: ["트위치", "twitch"]
+
+  afreecatv.com:
+    name: 아프리카TV
+    home_url: "https://www.afreecatv.com"
+    aliases: ["아프리카", "아프리카TV", "afreecatv"]
+
+  # ── 음악 ─────────────────────────────────────────
+  melon.com:
+    name: 멜론
+    home_url: "https://www.melon.com"
+    aliases: ["멜론", "melon"]
+
+  genie.co.kr:
+    name: 지니뮤직
+    home_url: "https://www.genie.co.kr"
+    aliases: ["지니", "지니뮤직"]
+
+  bugs.co.kr:
+    name: 벅스
+    home_url: "https://music.bugs.co.kr"
+    aliases: ["벅스", "벅스뮤직"]
+
+  spotify.com:
+    name: 스포티파이
+    home_url: "https://www.spotify.com/kr/"
+    aliases: ["스포티파이", "spotify"]
+
+  # ── 소셜/메신저 ──────────────────────────────────
+  instagram.com:
+    name: 인스타그램
+    home_url: "https://www.instagram.com"
+    aliases: ["인스타", "인스타그램", "instagram", "ig"]
+
+  twitter.com:
+    name: 트위터
+    home_url: "https://twitter.com"
+    aliases: ["트위터", "twitter", "x"]
+
+  facebook.com:
+    name: 페이스북
+    home_url: "https://www.facebook.com"
+    aliases: ["페북", "페이스북", "facebook"]
+
+  discord.com:
+    name: 디스코드
+    home_url: "https://discord.com"
+    aliases: ["디스코드", "discord"]
+
+  kakao.com:
+    name: 카카오
+    home_url: "https://www.kakao.com"
+    aliases: ["카카오"]
+    direct_services:
+      "카카오 메일": "https://mail.kakao.com"
+      "카카오메일": "https://mail.kakao.com"
+      "카카오맵": "https://map.kakao.com"
+      "카카오 지도": "https://map.kakao.com"
+      "다음 메일": "https://mail.daum.net"
+      "다음메일": "https://mail.daum.net"
+
+  # ── 금융 ─────────────────────────────────────────
+  toss.im:
+    name: 토스
+    home_url: "https://toss.im"
+    aliases: ["토스", "toss"]
+
+  kakaobank.com:
+    name: 카카오뱅크
+    home_url: "https://www.kakaobank.com"
+    aliases: ["카카오뱅크", "카뱅"]
+
+  hometax.go.kr:
+    name: 홈택스
+    home_url: "https://www.hometax.go.kr"
+    aliases: ["홈택스"]
+    direct_services:
+      "연말정산": "https://www.hometax.go.kr/ui/pp/yrs_index.html"
+      "연말정산 간소화": "https://www.hometax.go.kr/ui/pp/yrs_index.html"
+      "종합소득세 신고": "https://hometax.go.kr/websquare/websquare.html?w2xPath=%2Fui%2Fpp%2Findex_pp.xml&tmIdx=41&tm2lIdx=4103000000&tm3lIdx=4103150000"
+      "원클릭 환급": "https://hometax.go.kr/websquare/websquare.html?w2xPath=/ui/pp/index_pp.xml&tmIdx=41&tm2lIdx=4103000000&tm3lIdx=4103160000"
+      "환급금 조회": "https://hometax.go.kr/websquare/websquare.html?w2xPath=/ui/pp/index_pp.xml&tmIdx=41&tm2lIdx=4103000000&tm3lIdx=4103160000"
+
+  wetax.go.kr:
+    name: 위택스
+    home_url: "https://www.wetax.go.kr"
+    aliases: ["위택스"]
+
+  # ── 공공/유틸리티 ───────────────────────────────
+  nhis.or.kr:
+    name: 건강보험공단
+    home_url: "https://www.nhis.or.kr"
+    aliases: ["건강보험공단", "건보공단"]
+    direct_services:
+      "건강보험료": "https://si4n.nhis.or.kr/"
+      "건강보험료 조회": "https://si4n.nhis.or.kr/"
+      "건강보험료조회": "https://si4n.nhis.or.kr/"
+      "건강보험료 납부": "https://si4n.nhis.or.kr/"
+      "사회보험 통합징수": "https://si4n.nhis.or.kr/"
+      "보험료 납부확인": "https://si4n.nhis.or.kr/"
+
+  nps.or.kr:
+    name: 국민연금공단
+    home_url: "https://www.nps.or.kr"
+    aliases: ["국민연금공단"]
+    direct_services:
+      "예상연금": "https://csa.nps.or.kr/ohkd/ntpsidnty/anpnctng/UHKD7701M0.do"
+      "예상연금 조회": "https://csa.nps.or.kr/ohkd/ntpsidnty/anpnctng/UHKD7701M0.do"
+      "예상연금 모의계산": "https://csa.nps.or.kr/ohkd/ntpsidnty/anpnctng/UHKD7701M0.do"
+      "국민연금 가입증명": "https://www.nps.or.kr/elctcvlcpt/comm/getOHAC0000M5.do?menuId=MN24001054"
+      "내 연금": "https://pensioner.nps.or.kr/mypnsinfo/getMyPnsInfo.do"
+      "내연금": "https://pensioner.nps.or.kr/mypnsinfo/getMyPnsInfo.do"
+
+  iros.go.kr:
+    name: 인터넷등기소
+    home_url: "http://www.iros.go.kr"
+    aliases: ["인터넷등기소", "등기소"]
+    direct_services:
+      "부동산 등기": "https://www.iros.go.kr/PMainJ.jsp"
+      "부동산등기": "https://www.iros.go.kr/PMainJ.jsp"
+      "부동산 등기부등본": "https://www.iros.go.kr/PMainJ.jsp"
+      "부동산등기부등본": "https://www.iros.go.kr/PMainJ.jsp"
+      "등기부등본": "https://www.iros.go.kr/PMainJ.jsp"
+      "등기열람": "https://www.iros.go.kr/PMainJ.jsp"
+
+  epost.go.kr:
+    name: 우체국
+    home_url: "https://www.epost.go.kr"
+    aliases: ["우체국", "epost"]
+
+  # ── 한국 포털/서비스 ────────────────────────────
+  daum.net:
+    name: 다음
+    home_url: "https://www.daum.net"
+    aliases: ["다음", "daum"]
+
+  # ── 도구/생산성 ──────────────────────────────────
+  notion.so:
+    name: 노션
+    home_url: "https://www.notion.so"
+    aliases: ["노션", "notion"]
+
+  github.com:
+    name: 깃허브
+    home_url: "https://github.com"
+    aliases: ["깃허브", "github"]
+
+  gov.kr:
+    name: 정부24
+    # search URL 추측 금지. 모르는 정부24 요청은 home으로만 navigate.
+    home_url: "https://www.gov.kr"
+    # 검증된 서비스 직접 URL — 키워드 매칭 시 이 URL로 navigate
+    # (모든 CappBizCD는 실제 gov.kr 검색으로 확인된 것)
+    direct_services:
+      # ── 주민등록 ─────────────────────────────────────
+      "주민등록등본": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13100000015"
+      "주민등록 등본": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13100000015"
+      "주민등록초본": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13100000015"
+      "주민등록 초본": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13100000015"
+      "전입신고": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13100000016"
+      # ── 가족관계 ─────────────────────────────────────
+      "가족관계증명서": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=97400000004"
+      "기본증명서": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=97400000004"
+      "혼인관계증명서": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=97400000004"
+      "입양관계증명서": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=97400000004"
+      "친양자입양관계증명서": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=97400000004"
+      # ── 인감/부동산 ──────────────────────────────────
+      "인감증명서": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13100000025"
+      "토지대장": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13100000026"
+      "임야대장": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13100000026"
+      "건축물대장": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=15000000098"
+      "자동차등록원부": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=15000000334"
+      # ── 여권/출입국 ──────────────────────────────────
+      "여권 발급": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=12600000001"
+      "여권발급": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=12600000001"
+      "여권 재발급": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=12600000001"
+      "여권재발급": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=12600000001"
+      "여권 신청": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=12600000001"
+      "여권 사실증명": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=12620000001"
+      "출입국 사실증명": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=12700000024"
+      "출입국사실증명": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=12700000024"
+      "외국인등록 사실증명": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=12700000027"
+      # ── 세금/소득 ───────────────────────────────────
+      "사업자등록증명": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=12100000016"
+      "납세증명서": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=12100000011"
+      "국세납세증명": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=12100000011"
+      "지방세 납세증명서": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13100000056"
+      "지방세납세증명": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13100000056"
+      "소득금액증명": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=12100000021"
+      # ── 운전/연금/건강 ──────────────────────────────
+      "운전경력증명서": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13200000049"
+      "국민연금 가입증명": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=14600000312"
+      "국민연금 가입자 증명": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=14600000312"
+      "건강보험자격득실확인서": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=PG4CADM0107"
+      "건강보험 자격득실": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=PG4CADM0107"

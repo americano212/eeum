@@ -6,15 +6,17 @@ from models.schemas import (
     DomElement,
     HighlightAction,
     NavigateAction,
+    NavigationStep,
     PlanRequest,
     PlanResponse,
     ScrollAction,
     SelectAction,
+    SiteSearchAction,
     TypeAction,
     WaitAction,
     WaitForUserAction,
 )
-from services import llm, session
+from services import llm, safety, session
 
 
 router = APIRouter(tags=["plan"])
@@ -42,6 +44,11 @@ def _action_from_llm(a: dict, elements: list[DomElement]):
         return WaitAction(ms=int(a.get("ms", 500)))
     if action_type == "wait_for_user":
         return WaitForUserAction(instruction=a.get("instruction", ""))
+    if action_type == "site_search":
+        q = a.get("query")
+        if not q:
+            return None
+        return SiteSearchAction(query=q)
 
     # index 기반 액션 — index → xpath 변환
     idx = a.get("index")
@@ -72,11 +79,17 @@ async def plan(req: PlanRequest) -> PlanResponse:
         elements=elements,
     )
 
-    actions = []
+    # plan_actions 가 실제 LLM 에 보낸(=ranked top-K) elements. index 는 이 리스트 기준.
+    elements_used: list[DomElement] = raw_plan.get("elements_used") or elements
+
+    actions: list[NavigationStep] = []
     for a in raw_plan.get("actions") or []:
-        converted = _action_from_llm(a, elements)
+        converted = _action_from_llm(a, elements_used)
         if converted is not None:
             actions.append(converted)
+
+    # 결정적 안전 게이트 — LLM 이 S1~S4 를 어겼더라도 여기서 강제 교정.
+    actions = safety.apply(actions, elements_used)
 
     return PlanResponse(
         session_id=session_id,
