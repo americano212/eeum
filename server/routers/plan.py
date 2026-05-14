@@ -16,7 +16,11 @@ from models.schemas import (
     WaitAction,
     WaitForUserAction,
 )
-from services import llm, safety, session
+from services import conversations, llm, safety, session
+
+
+# 대화 맥락에 포함할 최대 메시지 수 — 토큰 비용 vs 컨텍스트 풍부도의 트레이드오프.
+HISTORY_LIMIT = 20
 
 
 router = APIRouter(tags=["plan"])
@@ -72,11 +76,18 @@ def _action_from_llm(a: dict, elements: list[DomElement]):
 async def plan(req: PlanRequest) -> PlanResponse:
     session_id, expires_at = await session.touch_or_create(req.session_id)
 
+    # 익스텐션은 /plan 직전에 user 메시지를 /conversations/log 로 push 하므로
+    # 가장 최근 user 행이 곧 현재 query와 동일하다 → 중복 방지를 위해 끝에서 제거.
+    history = await conversations.get_recent_messages(session_id, HISTORY_LIMIT)
+    if history and history[-1]["role"] == "user" and history[-1]["content"] == req.query:
+        history = history[:-1]
+
     elements = req.current_elements or []
     raw_plan = await llm.plan_actions(
         query=req.query,
         url=req.current_url or "",
         elements=elements,
+        history=history,
     )
 
     # plan_actions 가 실제 LLM 에 보낸(=ranked top-K) elements. index 는 이 리스트 기준.

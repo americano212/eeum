@@ -145,7 +145,48 @@ def _serialize_element(idx: int, el: DomElement) -> str:
     return " ".join(parts)
 
 
-def _build_system_prompt(url: str, examples: list[dict], official_hint: str | None = None) -> str:
+def _format_history_block(history: list[dict]) -> str:
+    """이전 대화를 system prompt 에 끼울 텍스트 블록으로 변환.
+
+    user/assistant/action/complete/error 만 사용. wait 는 UI 전용이라 스킵.
+    줄 단위 길이는 200자로 캡 — 긴 응답이 토큰을 잡아먹는 걸 방지.
+    """
+    if not history:
+        return ""
+    lines: list[str] = []
+    for m in history:
+        role = m.get("role")
+        content = (m.get("content") or "").strip().replace("\n", " ")
+        if len(content) > 200:
+            content = content[:200] + "..."
+        if role == "user":
+            lines.append(f"사용자: {content}")
+        elif role == "assistant":
+            lines.append(f"어시스턴트: {content}")
+        elif role == "action":
+            lines.append(f"수행: {content}")
+        elif role == "complete":
+            lines.append("완료")
+        elif role == "error":
+            lines.append(f"오류: {content}")
+    if not lines:
+        return ""
+    body = "\n".join(lines)
+    return (
+        "━━━ [이전 대화 (이번 세션의 맥락)] ━━━\n"
+        "아래는 같은 세션에서 이전에 오간 대화다. 이번 사용자 요청이 짧거나 대명사를 쓰면\n"
+        "(예: \"그거 클릭해줘\", \"옆에 있는 거\", \"방금 거 다시\") 이 맥락을 보고 해석하라.\n"
+        "단, 사용자가 명시적으로 다른 사이트/주제로 전환하면 이전 맥락은 무시.\n\n"
+        f"{body}"
+    )
+
+
+def _build_system_prompt(
+    url: str,
+    examples: list[dict],
+    official_hint: str | None = None,
+    history: list[dict] | None = None,
+) -> str:
     table = site_rules.all_sites_block() or "  (등록된 사이트 없음)"
     # str.format을 쓰면 prompt 안의 JSON 예시 중괄호가 placeholder로 잘못 해석된다.
     prompt = BASE_SYSTEM_PROMPT.replace("{site_rules_block}", table)
@@ -166,6 +207,10 @@ def _build_system_prompt(url: str, examples: list[dict], official_hint: str | No
     if fs_block:
         prompt += f"\n\n{fs_block}"
 
+    history_block = _format_history_block(history or [])
+    if history_block:
+        prompt += f"\n\n{history_block}"
+
     return prompt
 
 
@@ -174,6 +219,7 @@ async def plan_actions(
     url: str,
     elements: list[DomElement],
     max_elements: int = 50,
+    history: list[dict] | None = None,
 ) -> dict[str, Any]:
     visible = await element_ranker.rank(query, elements, top_k=max_elements)
 
@@ -206,7 +252,7 @@ async def plan_actions(
     response = await _openai().chat.completions.create(
         model=settings.chat_model,
         messages=[
-            {"role": "system", "content": _build_system_prompt(url or "", examples, official_hint)},
+            {"role": "system", "content": _build_system_prompt(url or "", examples, official_hint, history)},
             {"role": "user", "content": user_prompt},
         ],
         response_format={"type": "json_object"},

@@ -48,6 +48,11 @@ async def touch_or_create(session_id: str | None) -> tuple[str, str]:
     return session_id, expires_at
 
 
+async def delete(session_id: str) -> None:
+    client = _client()
+    await client.delete(_session_key(session_id))
+
+
 async def state_cached(state_id: str) -> bool:
     client = _client()
     return bool(await client.exists(_state_cache_key(state_id)))

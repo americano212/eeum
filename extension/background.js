@@ -85,6 +85,25 @@ async function getJSON(path) {
   return res.json();
 }
 
+async function deleteJSON(path) {
+  const baseUrl = await getServerUrl();
+  const res = await fetch(`${baseUrl}${path}`, { method: "DELETE" });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${res.statusText} ${text}`);
+  }
+  return res.json();
+}
+
+async function unregisterKnownSession(session_id) {
+  if (!session_id) return;
+  const list = await getKnownSessions();
+  const next = list.filter((s) => s !== session_id);
+  if (next.length !== list.length) {
+    await chrome.storage.local.set({ known_sessions: next });
+  }
+}
+
 async function callDomCheck(payload) {
   const sess = await getSession();
   const data = await postJSON("/dom/check", { ...payload, session_id: sess.session_id });
@@ -96,13 +115,29 @@ async function callDomCheck(payload) {
 // 사이드바에 표시되는 모든 영구 bubble을 서버 DB로 push.
 // transient placeholder("분석 중...")와 background와의 통신이 끊긴 상태에서
 // 띄우는 에러는 제외 — 전자는 의미 없고 후자는 push 자체가 실패한다.
+//
+// 매 push마다 현재 탭 URL을 같이 보내 서버가 세션의 "마지막 사이트"를 갱신한다.
+// 자동화가 navigate로 끝나면 AUTOMATION_COMPLETE 로그 시점의 URL이 곧 종착지가 된다.
+async function getActiveTabUrl() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const url = tab?.url || "";
+    if (!url || RESTRICTED_URL_RE.test(url)) return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
 async function postLog(role, content) {
   try {
     const sess = await getSession();
+    const currentUrl = await getActiveTabUrl();
     const data = await postJSON("/conversations/log", {
       session_id: sess.session_id,
       role,
       content: content ?? "",
+      current_url: currentUrl,
     });
     await saveSession(data.session_id, data.expires_at);
   } catch (err) {
@@ -516,6 +551,24 @@ chrome.runtime.onConnect.addListener((port) => {
     } else if (msg.type === "NEW_SESSION") {
       await clearSession();
       port.postMessage({ type: "SESSION_LOADED", payload: { session_id: null, messages: [] } });
+    } else if (msg.type === "DELETE_SESSION") {
+      try {
+        const sid = msg.payload.session_id;
+        await deleteJSON(`/conversations/${encodeURIComponent(sid)}`);
+        const { session_id: current } = await getSession();
+        const wasCurrent = current === sid;
+        if (wasCurrent) await clearSession();
+        await unregisterKnownSession(sid);
+        port.postMessage({
+          type: "SESSION_DELETED",
+          payload: { session_id: sid, was_current: wasCurrent },
+        });
+      } catch (err) {
+        port.postMessage({
+          type: "SESSION_DELETE_ERROR",
+          payload: { error: String(err.message || err) },
+        });
+      }
     } else if (msg.type === "SWITCH_SESSION") {
       try {
         const sid = msg.payload.session_id;
@@ -528,6 +581,21 @@ chrome.runtime.onConnect.addListener((port) => {
           type: "SESSION_LOADED",
           payload: { session_id: sid, messages: data.messages || [] },
         });
+        // 세션의 마지막 사이트로 활성 탭 이동.
+        // 현재 URL과 같으면 새로고침 안 함 (스크롤/입력 상태 보존).
+        if (data.last_url) {
+          try {
+            const tabId = await getActiveTabId();
+            if (tabId) {
+              const tab = await chrome.tabs.get(tabId).catch(() => null);
+              if (tab && tab.url !== data.last_url) {
+                await chrome.tabs.update(tabId, { url: data.last_url });
+              }
+            }
+          } catch (navErr) {
+            console.warn("[eeum] session URL restore failed:", navErr);
+          }
+        }
       } catch (err) {
         port.postMessage({
           type: "SESSION_LOAD_ERROR",

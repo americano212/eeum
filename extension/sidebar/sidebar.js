@@ -90,6 +90,19 @@
       case "SESSION_LOAD_ERROR":
         appendMessage("error", `대화 불러오기 실패: ${msg.payload.error}`);
         break;
+
+      case "SESSION_DELETED":
+        // 현재 세션이 사라지면 채팅창도 빈 상태로 리셋.
+        if (msg.payload.was_current) clearMessagesUI();
+        // 패널이 열려있으면 갱신된 목록 다시 요청.
+        if (!historyPanel.classList.contains("hidden") && port) {
+          port.postMessage({ type: "REQUEST_HISTORY" });
+        }
+        break;
+
+      case "SESSION_DELETE_ERROR":
+        appendMessage("error", `대화 삭제 실패: ${msg.payload.error}`);
+        break;
     }
   }
 
@@ -174,6 +187,9 @@
       li.className = "session-item";
       if (s.session_id === currentSessionId) li.classList.add("active");
 
+      const body = document.createElement("div");
+      body.className = "session-body";
+
       const title = document.createElement("div");
       title.className = "session-title";
       title.textContent = truncate(s.title || "(빈 대화)", 40);
@@ -182,14 +198,31 @@
       time.className = "session-time";
       time.textContent = s.last_activity ? formatTime(s.last_activity) : "";
 
-      li.appendChild(title);
-      li.appendChild(time);
-      li.addEventListener("click", () => {
+      body.appendChild(title);
+      body.appendChild(time);
+      body.addEventListener("click", () => {
         if (isRunning) return;
         if (port) port.postMessage({ type: "SWITCH_SESSION", payload: { session_id: s.session_id } });
         historyPanel.classList.add("hidden");
         historyBtn.classList.remove("active");
       });
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "session-delete";
+      delBtn.title = "이 대화 삭제";
+      delBtn.setAttribute("aria-label", "이 대화 삭제");
+      delBtn.textContent = "✕";
+      delBtn.addEventListener("click", (e) => {
+        // body 클릭(=세션 전환)으로 버블링되면 삭제 직후 사라진 세션을 다시 열려 시도해 에러난다.
+        e.stopPropagation();
+        if (isRunning) return;
+        const label = truncate(s.title || "(빈 대화)", 30);
+        if (!confirm(`"${label}" 대화를 삭제할까요? 되돌릴 수 없습니다.`)) return;
+        if (port) port.postMessage({ type: "DELETE_SESSION", payload: { session_id: s.session_id } });
+      });
+
+      li.appendChild(body);
+      li.appendChild(delBtn);
       sessionListEl.appendChild(li);
     }
   }
