@@ -144,19 +144,24 @@
     pendingTriggerXpath = null;
     pendingTriggerExpiresAt = 0;
 
-    chrome.runtime
-      .sendMessage({
-        type: "STATE_CHANGED",
-        payload: {
-          state_id: newStateId,
-          url,
-          dom_hash: hash,
-          referrer_state_id: previousStateId,
-          trigger_xpath: triggerXpath,
-          elements: stripInternal(elements),
-        },
-      })
-      .catch(() => {}); // background 가 아직 안 깨어있어도 무시
+    try {
+      if (!chrome.runtime?.id) return;
+      chrome.runtime
+        .sendMessage({
+          type: "STATE_CHANGED",
+          payload: {
+            state_id: newStateId,
+            url,
+            dom_hash: hash,
+            referrer_state_id: previousStateId,
+            trigger_xpath: triggerXpath,
+            elements: stripInternal(elements),
+          },
+        })
+        .catch(() => {}); // background 가 아직 안 깨어있어도 무시
+    } catch {
+      return;
+    }
 
     lastElementCount = elements.length;
   }
