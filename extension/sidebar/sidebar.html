@@ -16,10 +16,22 @@
         <span class="logo-text">DOM Navigator</span>
       </div>
       <div class="header-actions">
+        <button id="history-btn" title="대화 내역" aria-label="대화 내역">📋</button>
         <button id="clear-btn" title="세션 초기화" aria-label="세션 초기화">🗑</button>
         <button id="settings-btn" title="서버 설정" aria-label="설정">⚙</button>
       </div>
     </header>
+
+    <!-- 대화 내역 패널 -->
+    <div id="history-panel" class="hidden">
+      <div class="history-header">
+        <h3>대화 내역</h3>
+        <button id="new-session-btn" title="새 대화" aria-label="새 대화">+</button>
+      </div>
+      <ul id="session-list">
+        <li class="session-empty">불러오는 중...</li>
+      </ul>
+    </div>
 
     <!-- 설정 패널 (서버 URL) -->
     <div id="settings-panel" class="hidden">

@@ -30,6 +30,23 @@ services:
     volumes:
       - redis_data:/data
 
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-eeum}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-eeum}"
+      POSTGRES_DB: "${POSTGRES_DB:-eeum}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eeum} -d ${POSTGRES_DB:-eeum}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
   api:
     build: .
     ports:
@@ -41,6 +58,7 @@ services:
       NEO4J_USER: "${NEO4J_USER:-neo4j}"
       NEO4J_PASSWORD: "${NEO4J_PASSWORD:-password}"
       REDIS_URL: "redis://redis:6379/0"
+      POSTGRES_DSN: "postgresql://${POSTGRES_USER:-eeum}:${POSTGRES_PASSWORD:-eeum}@postgres:5432/${POSTGRES_DB:-eeum}"
     depends_on:
       qdrant:
         condition: service_started
@@ -48,8 +66,11 @@ services:
         condition: service_started
       neo4j:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
 
 volumes:
   qdrant_data:
   neo4j_data:
   redis_data:
+  postgres_data:

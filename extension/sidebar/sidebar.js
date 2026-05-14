@@ -78,6 +78,18 @@
       case "CONVERSATION_CLEARED":
         clearMessagesUI();
         break;
+
+      case "HISTORY_LIST":
+        renderSessionList(msg.payload.sessions || [], msg.payload.current_session_id);
+        break;
+
+      case "SESSION_LOADED":
+        renderLoadedSession(msg.payload.session_id, msg.payload.messages || []);
+        break;
+
+      case "SESSION_LOAD_ERROR":
+        appendMessage("error", `대화 불러오기 실패: ${msg.payload.error}`);
+        break;
     }
   }
 
@@ -127,6 +139,123 @@
     if (port) port.postMessage({ type: "CLEAR_CONVERSATION" });
     else clearMessagesUI();
   });
+
+  // ── 대화 내역 패널 ────────────────────────────────────────
+  const historyBtn = document.getElementById("history-btn");
+  const historyPanel = document.getElementById("history-panel");
+  const sessionListEl = document.getElementById("session-list");
+  const newSessionBtn = document.getElementById("new-session-btn");
+
+  historyBtn.addEventListener("click", () => {
+    const opening = historyPanel.classList.contains("hidden");
+    historyPanel.classList.toggle("hidden");
+    historyBtn.classList.toggle("active", opening);
+    if (opening) {
+      sessionListEl.innerHTML = `<li class="session-empty">불러오는 중...</li>`;
+      if (port) port.postMessage({ type: "REQUEST_HISTORY" });
+    }
+  });
+
+  newSessionBtn.addEventListener("click", () => {
+    if (isRunning) return;
+    if (port) port.postMessage({ type: "NEW_SESSION" });
+    historyPanel.classList.add("hidden");
+    historyBtn.classList.remove("active");
+  });
+
+  function renderSessionList(sessions, currentSessionId) {
+    if (sessions.length === 0) {
+      sessionListEl.innerHTML = `<li class="session-empty">아직 대화 내역이 없습니다.</li>`;
+      return;
+    }
+    sessionListEl.innerHTML = "";
+    for (const s of sessions) {
+      const li = document.createElement("li");
+      li.className = "session-item";
+      if (s.session_id === currentSessionId) li.classList.add("active");
+
+      const title = document.createElement("div");
+      title.className = "session-title";
+      title.textContent = truncate(s.title || "(빈 대화)", 40);
+
+      const time = document.createElement("div");
+      time.className = "session-time";
+      time.textContent = s.last_activity ? formatTime(s.last_activity) : "";
+
+      li.appendChild(title);
+      li.appendChild(time);
+      li.addEventListener("click", () => {
+        if (isRunning) return;
+        if (port) port.postMessage({ type: "SWITCH_SESSION", payload: { session_id: s.session_id } });
+        historyPanel.classList.add("hidden");
+        historyBtn.classList.remove("active");
+      });
+      sessionListEl.appendChild(li);
+    }
+  }
+
+  function renderLoadedSession(sessionId, messages) {
+    messagesEl.innerHTML = "";
+    if (messages.length === 0) {
+      messagesEl.innerHTML = `
+        <div class="msg-bubble assistant">
+          새로운 대화를 시작하세요. 무엇을 도와드릴까요?
+        </div>`;
+      hideProgress();
+      return;
+    }
+    for (const m of messages) renderHistoryMessage(m.role, m.content);
+    hideProgress();
+    scrollToBottom();
+  }
+
+  function renderHistoryMessage(role, content) {
+    switch (role) {
+      case "user":
+      case "assistant":
+      case "error":
+      case "complete":
+        appendMessage(role, content);
+        break;
+      case "action": {
+        const m = content.match(/^(단계 \d+\/\d+):\s*(.+)$/);
+        if (m) appendActionMessage(m[1], m[2]);
+        else appendActionMessage("단계", content);
+        break;
+      }
+      case "wait": {
+        // 과거 wait 지시문은 버튼 없이 안내만 표시.
+        const el = document.createElement("div");
+        el.className = "msg-bubble wait-user";
+        const instr = document.createElement("div");
+        instr.className = "wait-instruction";
+        instr.innerHTML = `<strong>⏳ 사용자 확인</strong><br>${escapeHtml(content)}`;
+        el.appendChild(instr);
+        messagesEl.appendChild(el);
+        break;
+      }
+      default:
+        appendMessage("assistant", content);
+    }
+  }
+
+  function truncate(text, max) {
+    const s = String(text || "");
+    return s.length > max ? s.slice(0, max) + "..." : s;
+  }
+
+  function formatTime(iso) {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    const now = new Date();
+    const sameDay =
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate();
+    const pad = (n) => String(n).padStart(2, "0");
+    if (sameDay) return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
 
   // ── 빠른 칩 ────────────────────────────────────────────────
   document.getElementById("quick-chips").addEventListener("click", (e) => {

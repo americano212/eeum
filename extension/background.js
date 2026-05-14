@@ -29,10 +29,27 @@ async function getSession() {
 
 async function saveSession(session_id, expires_at) {
   await chrome.storage.local.set({ session_id, expires_at });
+  await registerKnownSession(session_id);
 }
 
 async function clearSession() {
   await chrome.storage.local.remove(["session_id", "expires_at"]);
+}
+
+// 이 브라우저에서 발급받은 session_id 목록.
+// 서버는 사용자 개념이 없어 자기 세션을 식별할 방법이 chrome.storage 뿐이다.
+async function getKnownSessions() {
+  const { known_sessions } = await chrome.storage.local.get("known_sessions");
+  return Array.isArray(known_sessions) ? known_sessions : [];
+}
+
+async function registerKnownSession(session_id) {
+  if (!session_id) return;
+  const list = await getKnownSessions();
+  if (!list.includes(session_id)) {
+    list.unshift(session_id);
+    await chrome.storage.local.set({ known_sessions: list });
+  }
 }
 
 // ── 서버 URL 확인 (override 있으면 우선) ───────────────────
@@ -58,11 +75,89 @@ async function postJSON(path, body) {
   return res.json();
 }
 
+async function getJSON(path) {
+  const baseUrl = await getServerUrl();
+  const res = await fetch(`${baseUrl}${path}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${res.statusText} ${text}`);
+  }
+  return res.json();
+}
+
 async function callDomCheck(payload) {
   const sess = await getSession();
   const data = await postJSON("/dom/check", { ...payload, session_id: sess.session_id });
   await saveSession(data.session_id, data.expires_at);
   return data;
+}
+
+// ── 대화 로그 ──────────────────────────────────────────────
+// 사이드바에 표시되는 모든 영구 bubble을 서버 DB로 push.
+// transient placeholder("분석 중...")와 background와의 통신이 끊긴 상태에서
+// 띄우는 에러는 제외 — 전자는 의미 없고 후자는 push 자체가 실패한다.
+async function postLog(role, content) {
+  try {
+    const sess = await getSession();
+    const data = await postJSON("/conversations/log", {
+      session_id: sess.session_id,
+      role,
+      content: content ?? "",
+    });
+    await saveSession(data.session_id, data.expires_at);
+  } catch (err) {
+    console.warn("[eeum] log push failed:", err);
+  }
+}
+
+function describeAction(action) {
+  switch (action.type) {
+    case "navigate":   return `${action.url} 로 이동`;
+    case "click":      return `요소 클릭 (${action.xpath})`;
+    case "click_text": return `"${action.text}" 클릭`;
+    case "type": {
+      const v = (action.value ?? "").length > 20
+        ? action.value.slice(0, 20) + "..."
+        : action.value;
+      return `"${v}" 입력`;
+    }
+    case "select":    return `"${action.value}" 선택`;
+    case "scroll":    return `${action.direction === "down" ? "아래로" : "위로"} 스크롤 (${action.amount}px)`;
+    case "highlight": return `요소 강조 (${action.xpath})`;
+    case "wait":      return `${action.ms}ms 대기`;
+    case "wait_for_user": return "사용자 확인 대기";
+    default: return action.type;
+  }
+}
+
+function logFromOutgoing(msg) {
+  switch (msg.type) {
+    case "ASSISTANT_MESSAGE":
+      return { role: "assistant", content: msg.payload.text };
+    case "ACTION_START": {
+      const { action, stepIndex, total } = msg.payload;
+      return {
+        role: "action",
+        content: `단계 ${stepIndex + 1}/${total}: ${describeAction(action)}`,
+      };
+    }
+    case "WAIT_FOR_USER":
+      return { role: "wait", content: msg.payload.instruction };
+    case "ACTION_ERROR":
+      return { role: "error", content: `오류: ${msg.payload.error}` };
+    case "AUTOMATION_COMPLETE":
+      return { role: "complete", content: "✅ 작업이 완료되었습니다!" };
+    default:
+      return null;
+  }
+}
+
+// 사이드바로 보내는 메시지 = DB에 남는 메시지. 두 경로를 한 함수로 묶어
+// "UI에 보였는데 DB엔 없다"는 표류를 막는다.
+async function notifySidebar(port, msg) {
+  port?.postMessage(msg);
+  const log = logFromOutgoing(msg);
+  if (log) await postLog(log.role, log.content);
 }
 
 async function callDomUpload(payload) {
@@ -203,7 +298,7 @@ async function handleRestrictedPage(tabId, query, port) {
   const response = await callPlan(query, { url: "", elements: [] });
 
   if (response.explanation) {
-    port.postMessage({
+    await notifySidebar(port, {
       type: "ASSISTANT_MESSAGE",
       payload: { text: response.explanation },
     });
@@ -218,7 +313,7 @@ async function handleRestrictedPage(tabId, query, port) {
     );
   }
 
-  port.postMessage({
+  await notifySidebar(port, {
     type: "ACTION_START",
     payload: { action: firstNav, stepIndex: 0, total: actions.length },
   });
@@ -227,7 +322,7 @@ async function handleRestrictedPage(tabId, query, port) {
 
   const remaining = actions.slice(1);
   if (remaining.length === 0) {
-    port.postMessage({ type: "AUTOMATION_COMPLETE" });
+    await notifySidebar(port, { type: "AUTOMATION_COMPLETE" });
     return;
   }
 
@@ -274,7 +369,7 @@ async function runActions(actions, tabId, port) {
     if (!runtime.running) break;
 
     const action = actions[i];
-    port?.postMessage({
+    await notifySidebar(port, {
       type: "ACTION_START",
       payload: { action, stepIndex: i, total },
     });
@@ -285,7 +380,7 @@ async function runActions(actions, tabId, port) {
     });
 
     if (!result || !result.ok) {
-      port?.postMessage({
+      await notifySidebar(port, {
         type: "ACTION_ERROR",
         payload: {
           stepIndex: i,
@@ -297,7 +392,7 @@ async function runActions(actions, tabId, port) {
     }
 
     if (result.waitForUser) {
-      port?.postMessage({
+      await notifySidebar(port, {
         type: "WAIT_FOR_USER",
         payload: { instruction: result.instruction },
       });
@@ -316,7 +411,7 @@ async function runActions(actions, tabId, port) {
     }
   }
 
-  port?.postMessage({ type: "AUTOMATION_COMPLETE" });
+  await notifySidebar(port, { type: "AUTOMATION_COMPLETE" });
   runtime.running = false;
 }
 
@@ -330,6 +425,7 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener(async (msg) => {
     if (msg.type === "USER_MESSAGE") {
       try {
+        await postLog("user", msg.payload.text);
         port.postMessage({ type: "ASSISTANT_THINKING" });
 
         const tabId = await getActiveTabId();
@@ -353,14 +449,14 @@ chrome.runtime.onConnect.addListener((port) => {
         const response = await callPlan(msg.payload.text, snapshot);
 
         if (response.explanation) {
-          port.postMessage({
+          await notifySidebar(port, {
             type: "ASSISTANT_MESSAGE",
             payload: { text: response.explanation },
           });
         }
 
         if (response.needs_more_elements) {
-          port.postMessage({
+          await notifySidebar(port, {
             type: "ASSISTANT_MESSAGE",
             payload: { text: "관련 요소를 더 찾지 못했어요. 페이지를 스크롤하거나 다른 키워드로 다시 시도해주세요." },
           });
@@ -368,7 +464,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
         await runActions(response.actions || [], tabId, port);
       } catch (err) {
-        port.postMessage({
+        await notifySidebar(port, {
           type: "ACTION_ERROR",
           payload: { stepIndex: -1, error: String(err.message || err) },
         });
@@ -379,6 +475,7 @@ chrome.runtime.onConnect.addListener((port) => {
         runtime.resumeResolver();
         runtime.resumeResolver = null;
       }
+      await postLog("assistant", "작업이 중지되었습니다.");
     } else if (msg.type === "RESUME_AUTOMATION") {
       if (runtime.resumeResolver) {
         runtime.resumeResolver();
@@ -387,6 +484,56 @@ chrome.runtime.onConnect.addListener((port) => {
     } else if (msg.type === "CLEAR_CONVERSATION") {
       await clearSession();
       port.postMessage({ type: "CONVERSATION_CLEARED" });
+    } else if (msg.type === "REQUEST_HISTORY") {
+      try {
+        const known = await getKnownSessions();
+        const { session_id: current } = await getSession();
+        if (known.length === 0) {
+          port.postMessage({
+            type: "HISTORY_LIST",
+            payload: { sessions: [], current_session_id: current },
+          });
+          return;
+        }
+        const data = await postJSON("/conversations/sessions", {
+          session_ids: known,
+        });
+        // known_sessions 순서대로 정렬 (최신 발급 순)
+        const byId = new Map((data.sessions || []).map((s) => [s.session_id, s]));
+        const ordered = known
+          .map((sid) => byId.get(sid) || { session_id: sid, title: null, last_activity: null });
+        port.postMessage({
+          type: "HISTORY_LIST",
+          payload: { sessions: ordered, current_session_id: current },
+        });
+      } catch (err) {
+        console.warn("[eeum] history fetch failed:", err);
+        port.postMessage({
+          type: "HISTORY_LIST",
+          payload: { sessions: [], current_session_id: null, error: String(err.message || err) },
+        });
+      }
+    } else if (msg.type === "NEW_SESSION") {
+      await clearSession();
+      port.postMessage({ type: "SESSION_LOADED", payload: { session_id: null, messages: [] } });
+    } else if (msg.type === "SWITCH_SESSION") {
+      try {
+        const sid = msg.payload.session_id;
+        const data = await getJSON(`/conversations/${encodeURIComponent(sid)}`);
+        // 사이드바에서 새로 보낼 메시지가 이 세션에 이어지도록 storage에도 반영.
+        // expires_at은 다음 서버 응답에서 정확한 값으로 덮어쓰여진다.
+        const fakeExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        await saveSession(sid, fakeExpires);
+        port.postMessage({
+          type: "SESSION_LOADED",
+          payload: { session_id: sid, messages: data.messages || [] },
+        });
+      } catch (err) {
+        port.postMessage({
+          type: "SESSION_LOAD_ERROR",
+          payload: { error: String(err.message || err) },
+        });
+      }
     }
   });
 
