@@ -398,6 +398,93 @@
     });
   }
 
+  // site_search 용 — 페이지의 검색 input 추측. selector 우선순위 순.
+  // 추측이 빗나가면 null 반환해 LLM URL 추측보다 안전한 실패.
+  const SEARCH_INPUT_SELECTORS = [
+    'input[type="search"]',
+    '[role="searchbox"]',
+    'input[name="q"]',
+    'input[name="query"]',
+    'input[name="keyword"]',
+    'input[name="kwd"]',
+    'input[name="search_query"]',
+    'input[name="searchWord"]',
+    'input[name="searchKwd"]',
+    'input[name="searchKeyword"]',
+    'input[name="nttSj"]',
+    'input[aria-label*="검색"]',
+    'input[aria-label*="search" i]',
+    'input[placeholder*="검색"]',
+    'input[placeholder*="search" i]',
+  ];
+
+  function querySearchInput() {
+    for (const sel of SEARCH_INPUT_SELECTORS) {
+      const candidates = document.querySelectorAll(sel);
+      for (const el of candidates) {
+        if (!isVisible(el)) continue;
+        if (el.disabled) continue;
+        const t = (el.getAttribute("type") || "").toLowerCase();
+        if (t === "password" || t === "hidden") continue;
+        return el;
+      }
+    }
+    return null;
+  }
+
+  async function findSearchInput(timeoutMs = 3000) {
+    const deadline = Date.now() + timeoutMs;
+    let el = querySearchInput();
+    while (!el && Date.now() < deadline) {
+      await sleep(150);
+      el = querySearchInput();
+    }
+    return el;
+  }
+
+  async function executeSiteSearch(query) {
+    const input = await findSearchInput();
+    if (!input) {
+      return { ok: false, error: "이 페이지에서 검색창을 찾지 못했어요." };
+    }
+
+    input.scrollIntoView({ block: "center", behavior: "smooth" });
+    await sleep(200);
+    await highlightElement(input);
+
+    input.focus();
+    input.value = query;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    // SPA(검색창 onKeyDown 핸들러) 대응
+    const enterInit = {
+      key: "Enter",
+      code: "Enter",
+      keyCode: 13,
+      which: 13,
+      bubbles: true,
+      cancelable: true,
+    };
+    input.dispatchEvent(new KeyboardEvent("keydown", enterInit));
+    input.dispatchEvent(new KeyboardEvent("keyup", enterInit));
+
+    // 전통 form 사이트(정부24 등) 대응 — 합성 Enter는 native submit을 트리거하지 않음
+    if (input.form) {
+      try {
+        if (typeof input.form.requestSubmit === "function") {
+          input.form.requestSubmit();
+        } else {
+          input.form.submit();
+        }
+      } catch (_) {
+        // SPA가 onSubmit을 가로채 e.preventDefault() 하는 경우 등 — 무시
+      }
+    }
+
+    return { ok: true, navigated: true };
+  }
+
   async function executeOne(action) {
     // navigate 는 페이지 전환이라 별도 처리
     if (action.type === "navigate") {
@@ -416,6 +503,9 @@
     if (action.type === "wait_for_user") {
       // sidebar 가 사용자 확인 받을 때까지 background 가 일시정지함
       return { ok: true, waitForUser: true, instruction: action.instruction };
+    }
+    if (action.type === "site_search") {
+      return executeSiteSearch(action.query || "");
     }
 
     // 요소 기반 액션 - 현재 DOM 에서 재추출 후 xpath → index 변환

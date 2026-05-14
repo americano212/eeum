@@ -1,0 +1,32 @@
+{
+  "id": "youtube_search_direct_url",
+  "description": "유튜브 검색은 URL 파라미터로 직접 navigate",
+  "query": "유튜브에서 lofi music 검색해줘",
+  "url": "https://www.naver.com",
+  "elements": [
+    {
+      "tag": "input",
+      "text": "",
+      "placeholder": "검색",
+      "xpath": "/html/body/form/input[1]",
+      "type": "text",
+      "name": "query"
+    },
+    {
+      "tag": "button",
+      "text": "검색",
+      "xpath": "/html/body/form/button[1]",
+      "type": "submit"
+    }
+  ],
+  "expected": {
+    "needs_more_elements": false,
+    "first_action_must_match": {
+      "type": "navigate",
+      "url_contains": "youtube.com/results",
+      "url_must_contain_query": "lofi music"
+    },
+    "must_not_click_xpaths": [],
+    "must_highlight_only": []
+  }
+}

@@ -131,6 +131,11 @@ class AwaitSelectAction(BaseModel):
     value: str
 
 
+class SiteSearchAction(BaseModel):
+    type: Literal["site_search"] = "site_search"
+    query: str
+
+
 NavigationStep = (
     NavigateAction
     | ClickAction
@@ -145,6 +150,7 @@ NavigationStep = (
     | AwaitSelectAction
     | WaitAction
     | WaitForUserAction
+    | SiteSearchAction
 )
 
 

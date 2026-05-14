@@ -1,0 +1,7 @@
+id: search_engine_navigate
+description: "구글 메인에서 시작 → 쿠팡 검색 (시스템 프롬프트의 직접 URL 규칙으로 쿠팡 도메인 도달해야 함)"
+start_url: https://www.google.com/ncr
+query: "쿠팡에서 무선 키보드 검색해줘"
+success:
+  url_contains: coupang.com
+max_steps: 5

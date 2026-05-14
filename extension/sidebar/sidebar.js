@@ -79,13 +79,39 @@
         clearMessagesUI();
         break;
 
+      case "HISTORY_LIST":
+        renderSessionList(msg.payload.sessions || [], msg.payload.current_session_id);
+        break;
+
+      case "SESSION_LOADED":
+        renderLoadedSession(msg.payload.session_id, msg.payload.messages || []);
+        break;
+
+      case "SESSION_LOAD_ERROR":
+        appendMessage("error", `대화 불러오기 실패: ${msg.payload.error}`);
+        break;
+
+      case "SESSION_DELETED":
+        // 현재 세션이 사라지면 채팅창도 빈 상태로 리셋.
+        if (msg.payload.was_current) clearMessagesUI();
+        // 패널이 열려있으면 갱신된 목록 다시 요청.
+        if (!historyPanel.classList.contains("hidden") && port) {
+          port.postMessage({ type: "REQUEST_HISTORY" });
+        }
+        break;
+
+      case "SESSION_DELETE_ERROR":
+        appendMessage("error", `대화 삭제 실패: ${msg.payload.error}`);
+        break;
+
       case "DB_STATS_RESULT": {
         const d = msg.payload || {};
+        const el = document.getElementById("db-stats");
+        if (!el) break;
         if (d.error) {
-          document.getElementById("db-stats").textContent =
-            `(조회 실패: ${d.error})`;
+          el.textContent = `(조회 실패: ${d.error})`;
         } else {
-          document.getElementById("db-stats").textContent =
+          el.textContent =
             `Qdrant points : ${d.qdrant_points}\n` +
             `Neo4j states  : ${d.neo4j_states}\n` +
             `Neo4j edges   : ${d.neo4j_edges}`;
@@ -179,6 +205,143 @@
     else clearMessagesUI();
   });
 
+  // ── 대화 내역 패널 ────────────────────────────────────────
+  const historyBtn = document.getElementById("history-btn");
+  const historyPanel = document.getElementById("history-panel");
+  const sessionListEl = document.getElementById("session-list");
+  const newSessionBtn = document.getElementById("new-session-btn");
+
+  historyBtn.addEventListener("click", () => {
+    const opening = historyPanel.classList.contains("hidden");
+    historyPanel.classList.toggle("hidden");
+    historyBtn.classList.toggle("active", opening);
+    if (opening) {
+      sessionListEl.innerHTML = `<li class="session-empty">불러오는 중...</li>`;
+      if (port) port.postMessage({ type: "REQUEST_HISTORY" });
+    }
+  });
+
+  newSessionBtn.addEventListener("click", () => {
+    if (isRunning) return;
+    if (port) port.postMessage({ type: "NEW_SESSION" });
+    historyPanel.classList.add("hidden");
+    historyBtn.classList.remove("active");
+  });
+
+  function renderSessionList(sessions, currentSessionId) {
+    if (sessions.length === 0) {
+      sessionListEl.innerHTML = `<li class="session-empty">아직 대화 내역이 없습니다.</li>`;
+      return;
+    }
+    sessionListEl.innerHTML = "";
+    for (const s of sessions) {
+      const li = document.createElement("li");
+      li.className = "session-item";
+      if (s.session_id === currentSessionId) li.classList.add("active");
+
+      const body = document.createElement("div");
+      body.className = "session-body";
+
+      const title = document.createElement("div");
+      title.className = "session-title";
+      title.textContent = truncate(s.title || "(빈 대화)", 40);
+
+      const time = document.createElement("div");
+      time.className = "session-time";
+      time.textContent = s.last_activity ? formatTime(s.last_activity) : "";
+
+      body.appendChild(title);
+      body.appendChild(time);
+      body.addEventListener("click", () => {
+        if (isRunning) return;
+        if (port) port.postMessage({ type: "SWITCH_SESSION", payload: { session_id: s.session_id } });
+        historyPanel.classList.add("hidden");
+        historyBtn.classList.remove("active");
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "session-delete";
+      delBtn.title = "이 대화 삭제";
+      delBtn.setAttribute("aria-label", "이 대화 삭제");
+      delBtn.textContent = "✕";
+      delBtn.addEventListener("click", (e) => {
+        // body 클릭(=세션 전환)으로 버블링되면 삭제 직후 사라진 세션을 다시 열려 시도해 에러난다.
+        e.stopPropagation();
+        if (isRunning) return;
+        const label = truncate(s.title || "(빈 대화)", 30);
+        if (!confirm(`"${label}" 대화를 삭제할까요? 되돌릴 수 없습니다.`)) return;
+        if (port) port.postMessage({ type: "DELETE_SESSION", payload: { session_id: s.session_id } });
+      });
+
+      li.appendChild(body);
+      li.appendChild(delBtn);
+      sessionListEl.appendChild(li);
+    }
+  }
+
+  function renderLoadedSession(sessionId, messages) {
+    messagesEl.innerHTML = "";
+    if (messages.length === 0) {
+      messagesEl.innerHTML = `
+        <div class="msg-bubble assistant">
+          새로운 대화를 시작하세요. 무엇을 도와드릴까요?
+        </div>`;
+      hideProgress();
+      return;
+    }
+    for (const m of messages) renderHistoryMessage(m.role, m.content);
+    hideProgress();
+    scrollToBottom();
+  }
+
+  function renderHistoryMessage(role, content) {
+    switch (role) {
+      case "user":
+      case "assistant":
+      case "error":
+      case "complete":
+        appendMessage(role, content);
+        break;
+      case "action": {
+        const m = content.match(/^(단계 \d+\/\d+):\s*(.+)$/);
+        if (m) appendActionMessage(m[1], m[2]);
+        else appendActionMessage("단계", content);
+        break;
+      }
+      case "wait": {
+        // 과거 wait 지시문은 버튼 없이 안내만 표시.
+        const el = document.createElement("div");
+        el.className = "msg-bubble wait-user";
+        const instr = document.createElement("div");
+        instr.className = "wait-instruction";
+        instr.innerHTML = `<strong>⏳ 사용자 확인</strong><br>${escapeHtml(content)}`;
+        el.appendChild(instr);
+        messagesEl.appendChild(el);
+        break;
+      }
+      default:
+        appendMessage("assistant", content);
+    }
+  }
+
+  function truncate(text, max) {
+    const s = String(text || "");
+    return s.length > max ? s.slice(0, max) + "..." : s;
+  }
+
+  function formatTime(iso) {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    const now = new Date();
+    const sameDay =
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate();
+    const pad = (n) => String(n).padStart(2, "0");
+    if (sameDay) return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
   // ── 빠른 칩 ────────────────────────────────────────────────
   document.getElementById("quick-chips").addEventListener("click", (e) => {
     const chip = e.target.closest(".chip");
@@ -188,16 +351,19 @@
     userInput.focus();
   });
 
-  // ── 설정 패널 (플래닝 엔드포인트 선택) ──────────────────────
+  // ── 설정 패널 ───────────────────────────────────
+  // 세 가지 섹션 통합: 플래닝 엔드포인트 / 서버 URL / DB 상태.
   const settingsBtn = document.getElementById("settings-btn");
   const settingsPanel = document.getElementById("settings-panel");
+
+  // ── 1) 플래닝 엔드포인트 ─────────────────────
   const endpointSelect = document.getElementById("endpoint-select");
-  const saveBtn = document.getElementById("save-endpoint-btn");
-  const resetBtn = document.getElementById("reset-endpoint-btn");
+  const saveEndpointBtn = document.getElementById("save-endpoint-btn");
+  const resetEndpointBtn = document.getElementById("reset-endpoint-btn");
   const endpointStatus = document.getElementById("endpoint-status");
 
-  const DEFAULT_ENDPOINT = "/plan/strict";
-  const VALID_ENDPOINTS = new Set(["/plan/strict", "/plan", "/query"]);
+  const DEFAULT_ENDPOINT = "/plan";
+  const VALID_ENDPOINTS = new Set(["/plan", "/plan/strict", "/query"]);
 
   chrome.storage.local.get("planning_endpoint", ({ planning_endpoint }) => {
     const value =
@@ -205,6 +371,41 @@
         ? planning_endpoint
         : DEFAULT_ENDPOINT;
     endpointSelect.value = value;
+  });
+
+  saveEndpointBtn.addEventListener("click", () => {
+    const value = endpointSelect.value;
+    if (!VALID_ENDPOINTS.has(value)) {
+      flashEndpointStatus("알 수 없는 엔드포인트입니다.", "error");
+      return;
+    }
+    chrome.storage.local.set({ planning_endpoint: value }, () => {
+      flashEndpointStatus(`✅ 저장됨: ${value}. 다음 요청부터 적용됩니다.`, "ok");
+    });
+  });
+
+  resetEndpointBtn.addEventListener("click", () => {
+    chrome.storage.local.remove("planning_endpoint", () => {
+      endpointSelect.value = DEFAULT_ENDPOINT;
+      flashEndpointStatus(`기본값(${DEFAULT_ENDPOINT})으로 되돌렸습니다.`, "ok");
+    });
+  });
+
+  function flashEndpointStatus(text, kind) {
+    endpointStatus.textContent = text;
+    endpointStatus.style.color =
+      kind === "error" ? "#e53935" : kind === "warn" ? "#f0a500" : "#43a047";
+    endpointStatus.classList.remove("hidden");
+  }
+
+  // ── 2) 서버 URL override ─────────────────────
+  const serverInput = document.getElementById("server-url-input");
+  const saveServerBtn = document.getElementById("save-server-btn");
+  const resetServerBtn = document.getElementById("reset-server-btn");
+  const serverStatus = document.getElementById("server-status");
+
+  chrome.storage.local.get("server_url_override", ({ server_url_override }) => {
+    if (server_url_override) serverInput.value = server_url_override;
   });
 
   settingsBtn.addEventListener("click", () => {
@@ -215,7 +416,36 @@
     }
   });
 
-  // ── DB 통계 + 리셋 ────────────────────────────────────────
+  saveServerBtn.addEventListener("click", () => {
+    const url = serverInput.value.trim();
+    if (!url) {
+      flashServerStatus("URL을 입력해주세요.", "error");
+      return;
+    }
+    if (!/^https?:\/\//.test(url)) {
+      flashServerStatus("http:// 또는 https:// 로 시작해야 합니다.", "warn");
+      return;
+    }
+    chrome.storage.local.set({ server_url_override: url }, () => {
+      flashServerStatus("✅ 저장됨. 다음 요청부터 적용됩니다.", "ok");
+    });
+  });
+
+  resetServerBtn.addEventListener("click", () => {
+    chrome.storage.local.remove("server_url_override", () => {
+      serverInput.value = "";
+      flashServerStatus("기본값으로 되돌렸습니다.", "ok");
+    });
+  });
+
+  function flashServerStatus(text, kind) {
+    serverStatus.textContent = text;
+    serverStatus.style.color =
+      kind === "error" ? "#e53935" : kind === "warn" ? "#f0a500" : "#43a047";
+    serverStatus.classList.remove("hidden");
+  }
+
+  // ── 3) DB 통계 + 리셋 ────────────────────────
   const dbStatsEl = document.getElementById("db-stats");
   const refreshStatsBtn = document.getElementById("refresh-stats-btn");
   const resetDbBtn = document.getElementById("reset-db-btn");
@@ -228,7 +458,7 @@
     dbStatus.classList.remove("hidden");
   }
 
-  async function refreshStats() {
+  function refreshStats() {
     dbStatsEl.textContent = "로딩 중…";
     if (!port) {
       dbStatsEl.textContent = "(백그라운드 연결 없음)";
@@ -247,31 +477,6 @@
     flashDbStatus("DB 비우는 중…", "warn");
     if (port) port.postMessage({ type: "DB_RESET" });
   });
-
-  saveBtn.addEventListener("click", () => {
-    const value = endpointSelect.value;
-    if (!VALID_ENDPOINTS.has(value)) {
-      flashStatus("알 수 없는 엔드포인트입니다.", "error");
-      return;
-    }
-    chrome.storage.local.set({ planning_endpoint: value }, () => {
-      flashStatus(`✅ 저장됨: ${value}. 다음 요청부터 적용됩니다.`, "ok");
-    });
-  });
-
-  resetBtn.addEventListener("click", () => {
-    chrome.storage.local.remove("planning_endpoint", () => {
-      endpointSelect.value = DEFAULT_ENDPOINT;
-      flashStatus(`기본값(${DEFAULT_ENDPOINT})으로 되돌렸습니다.`, "ok");
-    });
-  });
-
-  function flashStatus(text, kind) {
-    endpointStatus.textContent = text;
-    endpointStatus.style.color =
-      kind === "error" ? "#e53935" : kind === "warn" ? "#f0a500" : "#43a047";
-    endpointStatus.classList.remove("hidden");
-  }
 
   // ── 메시지 렌더링 ──────────────────────────────────────────
   const messagesEl = document.getElementById("messages");
@@ -402,7 +607,7 @@
   function describeAction(action) {
     switch (action.type) {
       case "navigate":  return `${action.url} 로 이동`;
-      case "click":     return "요소 클릭";
+      case "click":     return `요소 클릭 (${action.xpath})`;
       case "click_text":return `"${action.text}" 클릭`;
       case "type":
         const v = (action.value ?? "").length > 20
@@ -411,15 +616,7 @@
         return `"${v}" 입력`;
       case "select":    return `"${action.value}" 선택`;
       case "scroll":    return `${action.direction === "down" ? "아래로" : "위로"} 스크롤 (${action.amount}px)`;
-      case "highlight": return "요소 강조";
-      case "await_click": return "강조된 요소 클릭 대기";
-      case "await_click_text": return `"${action.text}" 클릭 대기`;
-      case "await_type":
-        const tv = (action.value ?? "").length > 20
-          ? action.value.slice(0, 20) + "..."
-          : action.value;
-        return `"${tv}" 입력 대기`;
-      case "await_select": return `"${action.value}" 선택 대기`;
+      case "highlight": return `요소 강조 (${action.xpath})`;
       case "wait":      return `${action.ms}ms 대기`;
       case "wait_for_user": return "사용자 확인 대기";
       default: return action.type;

@@ -17,22 +17,34 @@
       </div>
       <div class="header-actions">
         <button id="explore-btn" class="explore-off" title="탐색 모드 (DB 채우기)">OFF</button>
+        <button id="history-btn" title="대화 내역" aria-label="대화 내역">📋</button>
         <button id="clear-btn" title="세션 초기화" aria-label="세션 초기화">🗑</button>
         <button id="settings-btn" title="설정" aria-label="설정">⚙</button>
       </div>
     </header>
 
-    <!-- 설정 패널 (플래닝 엔드포인트) -->
+    <!-- 대화 내역 패널 -->
+    <div id="history-panel" class="hidden">
+      <div class="history-header">
+        <h3>대화 내역</h3>
+        <button id="new-session-btn" title="새 대화" aria-label="새 대화">+</button>
+      </div>
+      <ul id="session-list">
+        <li class="session-empty">불러오는 중...</li>
+      </ul>
+    </div>
+
+    <!-- 설정 패널 (엔드포인트 + 서버 URL + DB) -->
     <div id="settings-panel" class="hidden">
       <div class="settings-inner">
         <h3>플래닝 엔드포인트</h3>
         <p class="settings-hint">
-          사이드패널 입력이 보내질 서버 엔드포인트. 기본값은 <code>/plan/strict</code>.
+          사이드패널 입력이 보내질 서버 엔드포인트. 기본값은 <code>/plan</code>(자동 실행 + 안전 게이트).
         </p>
         <div class="input-group">
           <select id="endpoint-select">
-            <option value="/plan/strict">POST /plan/strict — 안전 규칙 + 클릭 대기 (기본)</option>
-            <option value="/plan">POST /plan — flat 프롬프트, 자동 클릭</option>
+            <option value="/plan">POST /plan — 자동 실행 + 안전 게이트 (기본)</option>
+            <option value="/plan/strict">POST /plan/strict — 모든 액션 사용자 확인</option>
             <option value="/query">POST /query — 임베딩 + 그래프 (레거시)</option>
           </select>
         </div>
@@ -41,6 +53,27 @@
           <button id="reset-endpoint-btn" class="btn-secondary">기본값</button>
         </div>
         <p id="endpoint-status" class="hidden"></p>
+
+        <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
+        <h3>서버 주소</h3>
+        <p class="settings-hint">
+          기본값은 <code>extension/config.js</code> 의 <code>SERVER_URL</code> 입니다. 임시로 다른 서버를 가리키려면 아래에서 변경하세요.
+        </p>
+        <div class="input-group">
+          <input
+            type="text"
+            id="server-url-input"
+            placeholder="http://localhost:8000"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
+        <div class="settings-actions">
+          <button id="save-server-btn" class="btn-primary">저장</button>
+          <button id="reset-server-btn" class="btn-secondary">기본값</button>
+        </div>
+        <p id="server-status" class="hidden"></p>
 
         <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
 

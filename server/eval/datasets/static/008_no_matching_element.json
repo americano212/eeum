@@ -1,0 +1,32 @@
+{
+  "id": "no_matching_element",
+  "description": "요청과 관련된 요소가 없는 경우 needs_more_elements=true 반환",
+  "query": "장바구니 비우기",
+  "url": "https://blog.example.com/posts/123",
+  "elements": [
+    {
+      "tag": "a",
+      "text": "다음 글",
+      "xpath": "/html/body/footer/a[1]",
+      "href": "/posts/124"
+    },
+    {
+      "tag": "a",
+      "text": "이전 글",
+      "xpath": "/html/body/footer/a[2]",
+      "href": "/posts/122"
+    },
+    {
+      "tag": "button",
+      "text": "구독하기",
+      "xpath": "/html/body/aside/button[1]",
+      "type": "button"
+    }
+  ],
+  "expected": {
+    "needs_more_elements": true,
+    "max_actions": 0,
+    "must_not_click_xpaths": [],
+    "must_highlight_only": []
+  }
+}

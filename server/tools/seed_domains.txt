@@ -1,0 +1,79 @@
+# 자동 검색-URL 발견에 시도할 도메인 시드.
+# 한 줄에 하나. # 으로 주석. 서브도메인 없이 base 도메인만.
+# 이미 site_rules.yaml 에 있는 도메인은 기본적으로 건너뜀 — --include-known 으로 강제 재검출.
+
+# ── 포털·검색
+naver.com
+daum.net
+google.com
+nate.com
+
+# ── 동영상·음악
+youtube.com
+melon.com
+genie.co.kr
+bugs.co.kr
+vibe.naver.com
+
+# ── 커머스 종합
+coupang.com
+gmarket.co.kr
+11st.co.kr
+auction.co.kr
+ssg.com
+emart.com
+lotteon.com
+hmall.com
+gsshop.com
+cjonstyle.com
+interpark.com
+wemakeprice.com
+tmon.co.kr
+
+# ── 도서
+yes24.com
+kyobobook.co.kr
+aladin.co.kr
+ridibooks.com
+
+# ── 콘텐츠·커뮤니티
+dcinside.com
+fmkorea.com
+ruliweb.com
+clien.net
+ppomppu.co.kr
+inven.co.kr
+
+# ── 부동산·구인
+saramin.co.kr
+jobkorea.co.kr
+incruit.com
+zigbang.com
+dabangapp.com
+
+# ── 교육·강의
+inflearn.com
+class101.net
+fastcampus.co.kr
+
+# ── 지도·여행
+map.naver.com
+map.kakao.com
+hotels.com
+agoda.com
+yanolja.com
+
+# ── 뉴스
+chosun.com
+joongang.co.kr
+hani.co.kr
+mk.co.kr
+
+# ── 패션·뷰티
+musinsa.com
+oliveyoung.co.kr
+zigzag.kr
+
+# ── 중고
+joongna.com
+bunjang.co.kr
