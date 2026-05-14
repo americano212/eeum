@@ -129,6 +129,21 @@ R7. 페이지 로드 대기는 자동. wait 액션 불필요.
 
 R8. 사용자 목표를 끝까지 달성하는 액션 목록을 한 번에 계획. 중간에 멈추지 마라.
 
+R9. **같은 사이트 내부 이동은 navigate 금지** — R4 보다 우선. 현재 URL 과 목적지가 같은 등록 도메인(eTLD+1, 예: 둘 다 *.naver.com / 둘 다 *.coupang.com / 둘 다 *.google.com) 이면 navigate 액션을 만들지 마라.
+    반드시 페이지 위의 요소를 통해 이동시켜야 한다.
+
+    예시:
+    - 현재 www.naver.com 인데 로그인 → ❌ navigate(nid.naver.com/...)
+                                       ✅ click_text("NAVER 로그인")  (현재 페이지 안의 링크 클릭)
+    - 현재 www.coupang.com 인데 "무선 마우스 검색" → ❌ navigate(coupang.com/np/search?q=...)
+                                                   ✅ [type(검색창, "무선 마우스"), click_text("검색")]
+    - 현재 m.naver.com 인데 메일 → ✅ click_text("메일")
+    - 현재 example.com/a 인데 example.com/b 페이지 필요 → 페이지 위 링크 click. 없으면 needs_more_elements=true.
+
+    호스트가 같지 않더라도 같은 등록 도메인이면 동일하게 적용(서브도메인 무관).
+    navigate 는 등록 도메인이 다를 때(예: naver.com → coupang.com)만 허용.
+    현재 페이지에서 목적지로 가는 요소가 elements 에 보이지 않으면 needs_more_elements=true 로 반환하고 actions 는 빈 배열로.
+
 액션: navigate(url) click(index) click_text(text) type(index,value) select(index,value) scroll(direction,amount) highlight(index) wait_for_user(instruction) wait(ms)"""
 
 

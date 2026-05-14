@@ -2,48 +2,70 @@
 
 자연어 쿼리("~하고 싶어")를 받아 현재 웹 페이지에서 어떤 요소를 어떤 경로로 조작해야 하는지 반환하는 서버 + Chrome Extension.
 
-설계 명세는 [`spec.md`](./spec.md) 참고. 현재 동작 구조는 아래 그대로.
+설계 명세는 [`spec.md`](./spec.md) 참고.
 
 ## 현재 아키텍처 (세 트랙 병존)
 
 ```
 [Chrome Extension]                            [FastAPI 서버]
-                                              ┌──────────────────────────────┐
-사이드패널 입력 ─────────────┐                │ POST /plan/strict            │ ← 현재 ★사용중★
-                            │                │   gpt-4o-mini, temperature=0  │
-                            ▼                │   S1~S4 안전 / R1~R8 라우팅   │
-background.js ─── POST /plan/strict ────────▶│   click → await_click 후처리  │
-                                              │                              │
-                                              │ POST /plan                   │ ← 보존(비교용)
-                                              │   초기 flat-rule 시스템 프롬프트
-                                              │                              │
-content.js (페이지 상태 바뀔 때)              │ POST /dom/check              │
-   STATE_CHANGED                              │ POST /dom/upload             │
-       │                                      │   현재 페이지의 인터랙션 요소 │
-       ▼                                      │   임베딩 후 Qdrant 저장,     │
-background.js ─── /dom/check ────────────────▶│   상태 노드를 Neo4j 그래프에 │
-              └── /dom/upload (cache miss) ─▶│   추가 (referrer 엣지 포함) │
-                                              │                              │
-                                              │ POST /query                  │ ← 보존(미사용)
-                                              │   임베딩 + 그래프 기반 흐름  │
-                                              └──────────────────────────────┘
+                                              ┌──────────────────────────────────┐
+사이드패널 입력 ─────────────┐                │ POST /plan/strict                │ ← 기본 ★사용중★
+                            │                │   gpt-4o-mini, temperature=0      │
+                            ▼                │   S1~S4 안전 / R1~R9 라우팅       │
+background.js ─── (선택 가능 1) ────────────▶│   click/type/select 전부 await    │
+                                              │                                  │
+                                              │ POST /plan                       │ ← 비교용
+                                              │   초기 flat-rule 프롬프트         │
+                                              │   동일하게 await 후처리           │
+                                              │                                  │
+                                              │ POST /query                      │ ← 빠른 검색 경로
+                                              │   ① 의도 추출(LLM 짧은 호출)      │
+                                              │   ② Qdrant cosine + site_hint    │
+                                              │   ③ Neo4j shortestPath           │
+                                              │                                  │
+탐색 모드 ON 일 때만 ─────────│ POST /dom/check / /dom/upload                  │
+   STATE_CHANGED              │   페이지 요소 임베딩 → Qdrant 저장             │
+                              │   상태 노드/엣지를 Neo4j 그래프에 적재           │
+                              │                                                │
+                              │ POST /admin/stats, /admin/reset                │
+                              │   DB 카운트, 전체 비우기                        │
+                              └──────────────────────────────────────────────┘
 ```
 
-- **활성 경로:** 익스텐션의 USER_MESSAGE → `/plan/strict` (구조화된 system prompt + 클릭 대기 후처리)
-- **비교용 경로:** `/plan`. 동일한 PlanRequest/PlanResponse 스키마지만 초기 flat-rule 프롬프트를 그대로 사용. 익스텐션은 호출하지 않음. curl 등으로 A/B 비교에 사용.
-- **백그라운드 누적:** content script가 페이지 상태 전이를 감지할 때마다 `/dom/check` → 캐시 미스면 `/dom/upload`. Qdrant와 Neo4j 인덱스가 계속 누적됨.
-- **레거시 경로:** `/query`. 임베딩 유사도 + Neo4j shortestPath로 동작. 추후 LLM 없이 동작하는 모드를 다시 시험할 때 사용.
+- **세 엔드포인트**는 사이드패널 ⚙ 설정에서 드랍다운으로 선택 가능 (`chrome.storage.local.planning_endpoint`).
+- **탐색 모드(REC)** 가 켜져 있을 때만 STATE_CHANGED → `/dom/upload` 가 일어남. 그래야 의도적으로 사이트만 캡처 가능.
+- 세 엔드포인트 모두 응답이 동일하게 후처리되어 **click/type/select 가 사용자 위임(await_*) 형태로 치환**된다.
 
-## 클릭 위임 정책 (strict 모드)
+## 클릭/입력 위임 정책
 
-`/plan/strict` 응답은 자동 클릭을 최소화하도록 후처리됨:
+모든 엔드포인트의 응답은 다음 규칙으로 후처리됨:
 
-- `navigate` / `type` / `select` / `scroll` → 즉시 실행 ("어디로 가줘"·"검색해줘" 형태는 자연스럽게 직진)
-- `click` → `await_click` 으로 변환. 클라이언트는 그 요소를 펄스 영구 하이라이트하고 사용자가 그 요소를 직접 클릭할 때까지 대기
-- `click_text` → `await_click_text` (텍스트 매칭, 동일하게 클릭 대기)
-- 사용자가 강조된 요소를 클릭 → 다음 액션 진행 (`navigated:true`로 표시되어 1.5s 페이지 정착 대기)
-- 사용자가 다른 곳을 클릭 → 시퀀스 중단 + 사이드패널에 안내
-- 60초 무반응 → 타임아웃 처리
+| 원 액션 | 후처리 결과 | 의미 |
+|---|---|---|
+| `navigate` / `scroll` / `wait` / `highlight` | 그대로 | 자동 실행 |
+| `click` | `await_click` | 영구 펄스 하이라이트 + 유저 클릭 대기 |
+| `click_text` | `await_click_text` | 동일 (텍스트 매칭) |
+| `type` | `await_type` | 입력란 하이라이트 + 유저 직접 입력 또는 "계속" → 자동 채움 |
+| `select` | `await_select` | 동일 (드롭다운) |
+
+- 유저가 강조된 요소를 클릭하지 않고 다른 곳을 클릭 → 시퀀스 중단 + 안내
+- await_type/select 는 60~120초 무반응 시 타임아웃
+- 안전 규칙(S1~S4)에 걸리는 위험 키워드 버튼/password/카드 input 은 LLM 단에서 `highlight + wait_for_user` 로 위임됨
+
+## 라우팅 규칙 핵심 (STRICT 프롬프트)
+
+`/plan/strict` 의 system prompt 에 인코딩된 규칙 중 R9 가 특히 중요:
+
+> **R9. 같은 사이트 내부 이동은 navigate 금지** — 현재 URL 과 목적지가 같은 등록 도메인(eTLD+1) 이면 페이지 위의 요소(click/click_text/type)로 이동. navigate 는 사이트가 다를 때만 허용. 도달 가능한 요소가 페이지에 없으면 `needs_more_elements=true`.
+
+`/query` 도 동일 정신: hop 처리 시 same-site 면 캡처된 트리거(text 우선, xpath 보조)로 이동, cross-site 면 navigate.
+
+## chrome://newtab 등 restricted 페이지 처리
+
+content script 가 못 붙는 페이지에서도 동작:
+- 익스텐션은 빈 elements 로 plan 호출
+- 응답이 navigate-only 면 `chrome.tabs.update` 로 직접 이동
+- 그 후 정상 페이지에 도착하면 일반 흐름 재개
 
 ## 디렉터리
 
@@ -53,31 +75,33 @@ eeum/
 ├── README.md
 ├── .vscode/settings.json            # 워크스페이스 인터프리터(server/.venv) + analysis 경로
 ├── server/
-│   ├── main.py                      # FastAPI 엔트리 (lifespan에서 Qdrant·Neo4j 초기화)
+│   ├── main.py
 │   ├── routers/
 │   │   ├── plan.py                  # POST /plan, POST /plan/strict
-│   │   ├── query.py                 # POST /query (레거시, 임베딩+그래프)
-│   │   └── dom.py                   # POST /dom/check, POST /dom/upload
+│   │   ├── query.py                 # POST /query (의도 추출 + Qdrant + 그래프)
+│   │   ├── dom.py                   # POST /dom/check, POST /dom/upload
+│   │   └── admin.py                 # POST /admin/reset, GET /admin/stats
 │   ├── services/
 │   │   ├── llm.py                   # SYSTEM_PROMPT(/plan) + STRICT_SYSTEM_PROMPT(/plan/strict)
+│   │   ├── intent.py                # /query 용 키워드/사이트 힌트 추출
 │   │   ├── session.py               # Redis 세션 (TTL 7d)
 │   │   ├── embedding.py             # OpenAI text-embedding-3-small
-│   │   ├── vector_store.py          # Qdrant (delete-then-upsert)
+│   │   ├── vector_store.py          # Qdrant
 │   │   └── graph.py                 # Neo4j (State, NAVIGATES_TO)
-│   ├── models/schemas.py            # Pydantic 모델 (DomElement, Plan/Query Req·Resp, 액션 타입)
-│   ├── core/config.py               # pydantic-settings
+│   ├── models/schemas.py
+│   ├── core/config.py
 │   ├── Dockerfile
-│   ├── docker-compose.yml           # qdrant + neo4j(healthcheck) + redis + api
+│   ├── docker-compose.yml
 │   └── requirements.txt
 └── extension/
-    ├── manifest.json                # MV3, sidePanel + scripting + webNavigation
-    ├── config.js                    # SERVER_URL 등
-    ├── background.js                # service worker. /plan/strict 호출, await_click 처리
-    ├── content.js                   # DOM 수집/observer/액션 실행/하이라이트/클릭 대기
-    └── sidebar/                     # 사이드 패널 UI
+    ├── manifest.json
+    ├── config.js
+    ├── background.js                # 엔드포인트 라우팅, await_* 흐름 조율, admin 호출, restricted 페이지 대응
+    ├── content.js                   # DOM 수집/observer/액션 실행/하이라이트/클릭·입력 대기
+    └── sidebar/
         ├── sidebar.html
         ├── sidebar.css
-        └── sidebar.js
+        └── sidebar.js               # 탐색 토글, 엔드포인트 드랍다운, DB stats/reset
 ```
 
 ## 사전 요구사항
@@ -98,13 +122,13 @@ cp .env.example .env
 
 | 변수 | 기본값 | 설명 |
 |------|--------|------|
-| `OPENAI_API_KEY` | — | **필수.** 임베딩(`text-embedding-3-small`) + 채팅(`gpt-4o-mini`) 양쪽에 사용 |
-| `CHAT_MODEL` | `gpt-4o-mini` | `/plan` 에서 사용할 OpenAI 모델 |
+| `OPENAI_API_KEY` | — | **필수.** 임베딩 + 채팅 양쪽에 사용 |
+| `CHAT_MODEL` | `gpt-4o-mini` | `/plan(.strict)`, `/query` 의도 추출에 사용 |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | 임베딩 모델 |
 | `EMBEDDING_DIM` | `1536` | Qdrant 컬렉션 벡터 차원 |
 | `NEO4J_USER` | `neo4j` | |
 | `NEO4J_PASSWORD` | `password` | |
-| `QDRANT_URL` | `http://qdrant:6333` | Compose 내부 host 기준 |
+| `QDRANT_URL` | `http://qdrant:6333` | |
 | `NEO4J_URI` | `bolt://neo4j:7687` | |
 | `REDIS_URL` | `redis://redis:6379/0` | |
 
@@ -118,33 +142,27 @@ docker compose up --build
 ```
 
 - API: <http://localhost:8000>
-- Swagger 문서: <http://localhost:8000/docs>
-- Qdrant 대시보드: <http://localhost:6333/dashboard>
-- Neo4j 브라우저: <http://localhost:7474> (id/pw는 `.env`)
+- Swagger: <http://localhost:8000/docs>
+- Qdrant: <http://localhost:6333/dashboard>
+- Neo4j: <http://localhost:7474>
 - Redis: `localhost:6379`
 
-`docker-compose.yml`의 `neo4j` 서비스에 healthcheck가 걸려 있어서 `api`는 Neo4j가 실제로 준비된 뒤에 시작됩니다.
-
 종료:
-
 ```bash
-docker compose down          # 컨테이너만 제거
-docker compose down -v       # 볼륨(Qdrant/Neo4j/Redis 데이터)까지 삭제
+docker compose down          # 컨테이너만
+docker compose down -v       # 볼륨까지 삭제
 ```
 
 ### 2) 로컬 개발 (DB는 Docker, API는 로컬)
 
 ```bash
 cd server
-
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# DB만 컴포즈로 띄우기
 docker compose up -d qdrant neo4j redis
 
-# 호스트 기준 주소로 .env 또는 export
 export OPENAI_API_KEY=sk-...
 export QDRANT_URL=http://localhost:6333
 export NEO4J_URI=bolt://localhost:7687
@@ -155,19 +173,13 @@ uvicorn main:app --reload --port 8000
 
 ## API
 
-### `POST /plan/strict` — 구조화된 시스템 프롬프트 + 클릭 대기 (익스텐션이 사용)
+### `POST /plan/strict` — 구조화 시스템 프롬프트 + 클릭/입력 위임 (기본 활성)
 
-**요청 / 응답 스키마는 `/plan` 과 동일** (`PlanRequest` / `PlanResponse`).
+- temperature=0
+- 시스템 프롬프트: **S1 ~ S4 안전 규칙** + **R1 ~ R9 라우팅 규칙** (R9: same-site click-through)
+- 응답 후처리: `click`/`click_text`/`type`/`select` → `await_*` 변환
 
-차이점:
-- **시스템 프롬프트 구조**
-  - `S1 ~ S4` — 안전 규칙 (위험 키워드 버튼, password input, 카드 정보 input, 캡차)
-  - `R1 ~ R8` — 라우팅 규칙 (매칭 없으면 needs_more_elements, 무관 링크 fallback 금지, 사용자 지정 사이트는 직진, 미등록 사이트 URL 추측 금지 등)
-- **temperature = 0**
-- **응답 후처리**: `click` → `await_click`, `click_text` → `await_click_text` 로 자동 치환. "어디로 가줘" 형태(navigate-only)는 변환 대상 없으므로 그대로 직진 실행.
-
-**요청**
-
+요청:
 ```json
 {
   "session_id": null,
@@ -185,15 +197,14 @@ uvicorn main:app --reload --port 8000
 }
 ```
 
-**응답** (클라이언트가 실제로 실행할 액션 — `click`이 `await_click`으로 치환된 모습)
-
+응답:
 ```json
 {
   "session_id": "uuid...",
-  "expires_at": "2026-05-18T...",
-  "explanation": "로그인 버튼을 강조했습니다. 직접 클릭해주세요.",
+  "expires_at": "...",
+  "explanation": "현재 페이지의 'NAVER 로그인' 링크를 클릭하면 됩니다.",
   "actions": [
-    { "type": "await_click", "xpath": "/html/body/.../a[1]" }
+    { "type": "await_click_text", "text": "NAVER 로그인" }
   ],
   "needs_more_elements": false
 }
@@ -201,50 +212,74 @@ uvicorn main:app --reload --port 8000
 
 ### `POST /plan` — 초기 flat-rule 프롬프트 (비교용)
 
-`/plan/strict` 과 동일한 PlanRequest/PlanResponse 스키마이지만:
-- 초기 flat-rule system prompt 사용
-- 클라이언트가 LLM이 낸 `click`/`click_text`를 그대로 실행 (자동 클릭)
+스키마 동일. flat-rule 시스템 프롬프트만 다름. 후처리(`await_*` 치환)는 동일하게 적용.
 
-A/B 비교나 회귀 추적에 사용. 익스텐션은 호출하지 않음.
+### `POST /query` — 의도 추출 + 임베딩 + 그래프
 
-### 지원 액션 타입
+흐름:
+1. **의도 추출** — gpt-4o-mini 짧은 호출로 `{keyword, site_hint}` 분리
+2. **Qdrant 검색** — `keyword` 임베딩 → top 10 (site_hint 있으면 top 30 → 호스트 매칭으로 추림)
+3. **현재 페이지 우선** — `current_state_id` 일치 hit 우선
+4. **경로 조립** — `shortest_path` 호출:
+   - same-site hop: 캡처된 `trigger_text` → `trigger_xpath` 순으로 click
+   - cross-site hop: `navigate`
+   - 경로 없음 + same-site: `current_elements` 중 target 호스트 향하는 링크 발견 시 그 링크로 click, 못 찾으면 navigate 폴백
+   - 경로 없음 + cross-site: navigate
+5. 최종 `target_element` 의 click 은 클라이언트 어댑터에서 추가됨 (`text` 우선, 없으면 `xpath`)
 
-| 타입 | 필드 | 설명 |
-|------|------|------|
-| `navigate` | `url` | 페이지 이동 |
-| `click` | `xpath` | 요소 클릭 (`/plan` 응답에서만) |
-| `click_text` | `text` | 텍스트로 매칭해서 클릭 (`/plan` 응답에서만) |
-| `await_click` | `xpath` | 영구 하이라이트 후 사용자 클릭 대기 (`/plan/strict`) |
-| `await_click_text` | `text` | 텍스트 매칭 + 사용자 클릭 대기 (`/plan/strict`) |
-| `type` | `xpath`, `value` | 입력 |
-| `select` | `xpath`, `value` | `<select>` 옵션 선택 |
-| `scroll` | `direction`("up"/"down"), `amount` | 스크롤 |
-| `highlight` | `xpath` | 클릭 없이 시각 강조만 (위험 액션 안내용) |
-| `wait` | `ms` | 대기 |
-| `wait_for_user` | `instruction` | 사용자 확인 필요, 사이드패널에 "계속 진행" 버튼 표시 |
-
-strict 모드에서는 `발급/신청/구매/결제/주문/제출/전송/예약/등록/가입/삭제/동의` 키워드 버튼·password·카드 input은 시스템 프롬프트(S1~S4) 차원에서 `highlight` + `wait_for_user` 로 위임됨.
-
-### `POST /dom/check` — 상태 캐시 확인 (자동 파이프라인)
-
+요청:
 ```json
 {
   "session_id": null,
-  "state_id": "https://example.com/settings|a1b2c3",
-  "url": "https://example.com/settings",
-  "dom_hash": "a1b2c3"
+  "query": "로그인 하려면 어떻게 해?",
+  "current_state_id": "https://www.naver.com/|abc123",
+  "current_url": "https://www.naver.com/",
+  "current_dom_hash": "abc123",
+  "current_elements": [ ... ]
 }
 ```
 
-응답에 `cache_miss: true`면 `/dom/upload`로 이어짐.
+응답:
+```json
+{
+  "session_id": "uuid...",
+  "expires_at": "...",
+  "target_element": {
+    "state_id": "https://nid.naver.com/.../#account|...",
+    "url": "https://nid.naver.com/...",
+    "xpath": "/html/body/.../button[1]",
+    "tag": "button",
+    "text": "로그인"
+  },
+  "navigation_path": [
+    { "type": "click_text", "text": "NAVER 로그인" }
+  ]
+}
+```
+* 익스텐션의 background.js 가 `target_element` + `navigation_path` 를 통합 plan 형식으로 어댑트해서 동일한 await 흐름으로 실행.
 
-### `POST /dom/upload` — DOM 요소 업로드 (자동 파이프라인)
+### `POST /dom/check`, `POST /dom/upload` — 자동 인덱싱
 
-요소들을 임베딩해서 Qdrant에 저장하고, Neo4j에 상태 노드 + (있다면) referrer 엣지를 만듭니다. 같은 `state_id`로 들어오면 기존 포인트를 삭제 후 다시 적재(중복 누적 방지).
+탐색 모드가 ON 일 때만 호출됨. 같은 `state_id` 재업로드 시 기존 포인트 삭제 후 재적재.
 
-### `POST /query` — 레거시 시맨틱 검색 (현재 미사용)
+### `POST /admin/reset` — DB 비우기
 
-임베딩 유사도 기반으로 후보 요소를 찾고, Neo4j `shortestPath`로 도달 경로를 조립합니다. 현재 익스텐션은 호출하지 않으나 엔드포인트는 보존. 자세한 흐름은 [`spec.md`](./spec.md) 참고.
+Qdrant 컬렉션 재생성 + Neo4j 전체 노드/엣지 삭제 + Redis `state:*` 키 삭제. 세션은 보존.
+
+```json
+{
+  "status": "ok",
+  "qdrant_recreated": true,
+  "neo4j_cleared": true,
+  "redis_state_keys_cleared": 12
+}
+```
+
+### `GET /admin/stats` — DB 카운트
+
+```json
+{ "qdrant_points": 0, "neo4j_states": 0, "neo4j_edges": 0 }
+```
 
 ### `GET /health`
 
@@ -253,68 +288,94 @@ curl http://localhost:8000/health
 # {"status":"ok"}
 ```
 
+### 지원 액션 타입
+
+| 타입 | 필드 | 설명 |
+|------|------|------|
+| `navigate` | `url` | 페이지 이동 (cross-site 시) |
+| `click` / `click_text` | `xpath` / `text` | 자동 클릭. 응답 후처리로 거의 안 나오고, /query 의 navigation_path 에서 동일사이트 hop 으로 등장 가능 |
+| `await_click` | `xpath` | 영구 하이라이트 + 사용자 클릭 대기 |
+| `await_click_text` | `text` | 텍스트 매칭 + 사용자 클릭 대기 |
+| `type` / `select` | `xpath`, `value` | (드물게 그대로) 자동 입력/선택 |
+| `await_type` | `xpath`, `value` | 입력란 하이라이트 + 사용자 직접 입력 또는 "계속" 자동 채움 |
+| `await_select` | `xpath`, `value` | 드롭다운 하이라이트 + 사용자 선택 또는 "계속" 자동 |
+| `scroll` | `direction`, `amount` | 스크롤 |
+| `highlight` | `xpath` | 클릭 없이 시각 강조 |
+| `wait` | `ms` | 대기 |
+| `wait_for_user` | `instruction` | 사이드패널 "계속 진행" 버튼 대기 |
+
 ## Chrome Extension
 
-Chrome MV3 사이드패널. 빌드 없이 unpacked로 로드.
+Chrome MV3 사이드패널. 빌드 없이 unpacked 로드.
 
-### 1) 서버 주소
+### 사이드패널 UI
 
-기본값: `extension/config.js`의 `SERVER_URL = "http://localhost:8000"`. 운영 서버가 바뀌면 이 파일만 수정. 임시 변경은 사이드패널의 ⚙ 버튼에서 override (값은 `chrome.storage.local.server_url_override`).
+| 요소 | 동작 |
+|---|---|
+| 상단 `OFF` / `● REC` | **탐색 모드 토글**. ON 일 때만 STATE_CHANGED → `/dom/upload` |
+| 상단 🗑 | 세션 초기화 (chrome.storage.local 의 session_id 만 제거) |
+| 상단 ⚙ | 설정 패널 토글 — 엔드포인트 드랍다운 + DB 통계/리셋 |
+| 설정 → 엔드포인트 | `/plan/strict`, `/plan`, `/query` 중 선택 (저장: `planning_endpoint`) |
+| 설정 → DB 새로고침 | `/admin/stats` 호출해 현재 DB 카운트 표시 |
+| 설정 → DB 비우기 | 확인 다이얼로그 → `/admin/reset` |
 
-### 2) 로드
+### 1) 로드
 
 1. `chrome://extensions` 접속
-2. 우측 상단 **개발자 모드** 토글 ON
-3. **압축해제된 확장 프로그램 로드** → `eeum/extension/` 선택
-4. 툴바 퍼즐 아이콘 → "DOM Navigator" 핀 (선택)
+2. 우측 상단 **개발자 모드** ON
+3. **압축해제된 확장 프로그램 로드** → `eeum/extension/`
+4. 툴바 핀 (선택)
 
-### 3) 사용
+### 2) 권장 사용 흐름
 
-- 아무 사이트에서 툴바의 **DOM Navigator** 아이콘 클릭 → 사이드패널
-- 자연어로 입력 (예: "결제 플랜 변경하고 싶어")
-- 백그라운드에서 페이지 상태가 바뀔 때마다 자동으로 DOM이 서버에 누적됨 (Qdrant + Neo4j 그래프 — 현재 활성 경로에서는 안 쓰이지만 데이터는 쌓임)
+1. 설정에서 엔드포인트 확인 (기본 `/plan/strict`)
+2. **탐색 모드 ON** → 손으로 사이트를 돌아다니며 DB 채움 (사이드패널에 "📥 캡처: ..." 표시)
+3. 채운 뒤 탐색 모드 OFF
+4. 자연어로 입력 → 액션 시퀀스 실행 (대부분 await 액션이라 사용자가 직접 클릭/입력)
 
-### 4) 디버그
+### 3) 디버그
 
 | 위치 | 확인 |
 |------|------|
 | Sidebar console | 사이드패널 우클릭 → 검사 |
 | Service worker  | `chrome://extensions` → "서비스 워커" |
-| Content script  | 일반 페이지 DevTools Console |
+| Content script  | 일반 페이지 DevTools Console (`[eeum]` 키워드) |
 
-### 5) 동작 메모
+### 4) 동작 메모
 
-- **인터랙션 요소만 수집**: `button, input, select, textarea, a, [role], [aria-label]`. 단, `[role]`/`[aria-label]` 로 잡힌 wrapper 가 내부에 실제 컨트롤을 품고 있으면 wrapper 는 제외(leaf 우선).
+- **인터랙션 요소만 수집**: `button, input, select, textarea, a, [role], [aria-label]`. `[role]`/`[aria-label]` wrapper 가 내부에 실제 컨트롤을 품으면 wrapper 제외 (leaf 우선).
 - **요소 필드**: `tag, text, aria_label, role, xpath, id, href, type, name, placeholder`.
-- **`dom_hash`**: `tag + xpath + aria-label + role` 시그너처를 SHA-256으로 해시 후 앞 8 bytes만. 동적 텍스트는 제외해서 hash 폭발 방지.
-- **상태 변화 트리거**: ① `main/[role=main]/dialog/[role=tabpanel]` 컨테이너 교체, ② 인터랙션 요소 수 ±5 이상 변화, ③ URL 변경(`pushState`/`popstate`/`hashchange`).
-- **`trigger_xpath`**: 클릭 후 500ms 윈도우 내에 변화가 감지되면 그 클릭이 엣지의 `trigger_xpath` 로 기록.
+- **`dom_hash` (안정 식별자 기반)**: `id || aria_label || name || (1~20자 짧은 텍스트 + 숫자 없음)` 요소만 시그너처에 포함. 결과 정렬하여 DOM 순서 비의존. xpath 는 hash 에서 제외. 효과: 광고 회전/sticky/뉴스 위젯으로 인한 hash 폭발 방지.
+- **상태 변화 트리거**: ① `main/[role=main]/dialog/[role=tabpanel]` 컨테이너 교체, ② 인터랙션 요소 수 ±5 이상 변화, ③ URL 변경.
+- **`trigger_xpath`**: 클릭 후 500ms 윈도우 내 변화 감지 시 그 클릭 xpath 가 엣지에 기록.
 - **content script 중복 주입 방지**: `window.__EEUM_CONTENT_LOADED__` 가드.
-- **타겟 요소 하이라이트**: 자동 액션 직전에는 `position:fixed` 오버레이로 600ms 강조 후 진행. `highlight` 액션은 강조만 하고 클릭은 생략.
-- **클릭 대기 하이라이트**: `await_click(_text)` 액션은 주황색 펄스 영구 하이라이트(rAF 추적, 스크롤·sticky 대응) + capture-phase 클릭 리스너로 유저가 그 요소를 직접 클릭할 때까지 대기. 다른 곳을 클릭하면 시퀀스가 중단되고 사이드패널에 안내. 60초 무반응 시 타임아웃.
+- **타겟 요소 하이라이트**: 자동 액션 직전 `position:fixed` 오버레이 600ms.
+- **클릭/입력 대기 하이라이트**: `await_*` 액션은 주황 펄스 영구 하이라이트(rAF 추적). capture-phase 클릭/`input`/`change` 리스너로 사용자 행동 감지.
+- **restricted 페이지**: chrome://newtab 등에서 첫 navigate 액션은 content script 대신 `chrome.tabs.update` 로 직접 처리.
 
 ## 운영 메모
 
-- **세션**: `session_id`가 `null`이거나 만료된 경우 서버가 새 UUID 발급. 응답의 `session_id`/`expires_at`을 클라이언트가 `chrome.storage.local`에 보관. TTL 7일 sliding.
-- **state 캐시 TTL**: 1시간. `/dom/check`의 히트 판정과 `/query`의 동기 업로드 분기에 사용.
-- **Neo4j 리셋**: 문제 발생 시 노드/엣지 전체 드롭 허용.
+- **세션 TTL**: 7일 sliding.
+- **state 캐시 TTL**: 1시간 (`/dom/check` 히트 판정용).
+- **Neo4j 리셋**: 위 `/admin/reset` 사용 권장. 수동:
   ```cypher
   MATCH (n) DETACH DELETE n;
   ```
-- **Qdrant 컬렉션**: 앱 시작 시 자동 생성 (`dom_elements`, COSINE, dim=1536). 같은 `state_id` 재업로드는 기존 포인트 삭제 후 재적재.
-- **OpenAI 호환성 픽스**: `requirements.txt` 에 `httpx<0.28` 핀. openai 1.54.0이 httpx 0.28에서 제거된 `proxies` 인자를 넘기는 버그 회피용.
+- **Qdrant 컬렉션**: 앱 시작 시 자동 생성 (`dom_elements`, COSINE, dim=1536, payload index: `state_id`).
+- **OpenAI 호환성 핀**: `requirements.txt` 에 `httpx<0.28`. openai 1.54.0 의 `proxies` 인자 호환성 회피.
 
 ## 트러블슈팅
 
 | 증상 | 확인 |
 |------|------|
-| `OPENAI_API_KEY` 누락 | `server/.env` 또는 export 여부 |
-| `Connection refused` (qdrant/neo4j/redis) | Compose 컨테이너 기동 여부 (`docker compose ps`) |
-| `Couldn't connect to neo4j:7687` at startup | healthcheck 추가 후엔 자동 대기. 그래도 나면 `docker compose down -v && up --build` |
-| `proxies` keyword TypeError | openai/httpx 버전 충돌. `pip install -r requirements.txt` 재실행 |
-| Extension에서 CORS / Mixed Content | 서버가 `https`면 extension SERVER_URL도 `https` |
-| 사이드패널이 안 열림 | manifest의 `side_panel` 권한 / `chrome://extensions`에서 리로드 |
-| "페이지 콘텐츠를 인식하지 못했습니다" | 탭을 한 번 새로고침. content script가 페이지 로드 시점에만 주입되는 게 원인 |
-| `chrome://newtab` 등에서 동작 안 함 | 브라우저 내부 페이지는 의도적으로 차단 (background.js의 RESTRICTED_URL_RE) |
-| `STATE_CHANGED` 무한 반복 | `dom_hash`가 매번 달라짐 → 페이지의 동적 요소가 selector에 잡히는지 확인 |
-| Neo4j 인증 실패 | 첫 기동 이후 비밀번호 변경 시 `docker compose down -v`로 볼륨 초기화 |
+| `OPENAI_API_KEY` 누락 | `server/.env` 또는 export |
+| `Connection refused` (qdrant/neo4j/redis) | `docker compose ps` 로 컨테이너 기동 확인 |
+| `Couldn't connect to neo4j:7687` at startup | healthcheck 로 자동 대기. 그래도 나면 `docker compose down -v && up --build` |
+| `proxies` TypeError | openai/httpx 버전 충돌. `pip install -r requirements.txt` 재실행 |
+| Extension CORS / Mixed Content | 서버가 `https` 면 extension SERVER_URL 도 `https` |
+| 사이드패널이 안 열림 | manifest `side_panel` 권한 / `chrome://extensions` 리로드 |
+| "페이지 콘텐츠를 인식하지 못했습니다" | 탭 새로고침 (content script 가 페이지 로드 시점에만 주입됨). chrome://newtab 등이면 restricted 흐름으로 자동 대응됨 |
+| "요소를 찾을 수 없음 (await_click: ...)" | `/query` 응답의 xpath 가 stale. `target.text` 가 비어 있으면 발생. 같은 사이트 캡처 데이터가 부족할 가능성 — 탐색 모드로 더 채우거나 `/plan/strict` 사용 |
+| 캡처 메시지 폭주 | 사이드패널 채팅에 "📥 캡처: ..." 가 많이 뜸 — 탐색 모드 OFF |
+| `STATE_CHANGED` 무한 반복 | `dom_hash` 가 매번 달라짐 — content.js 의 `stableSignature` 가 잡지 못한 동적 요소 확인 |
+| Neo4j 인증 실패 | 비밀번호 변경 시 `docker compose down -v` 로 볼륨 초기화 |

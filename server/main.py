@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from routers import dom, plan, query
+from routers import admin, dom, plan, query
 from services import graph, vector_store
 
 
@@ -24,6 +24,7 @@ app = FastAPI(
 app.include_router(dom.router)
 app.include_router(query.router)
 app.include_router(plan.router)
+app.include_router(admin.router)
 
 
 @app.get("/health")

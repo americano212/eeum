@@ -16,32 +16,41 @@
         <span class="logo-text">DOM Navigator</span>
       </div>
       <div class="header-actions">
+        <button id="explore-btn" class="explore-off" title="탐색 모드 (DB 채우기)">OFF</button>
         <button id="clear-btn" title="세션 초기화" aria-label="세션 초기화">🗑</button>
-        <button id="settings-btn" title="서버 설정" aria-label="설정">⚙</button>
+        <button id="settings-btn" title="설정" aria-label="설정">⚙</button>
       </div>
     </header>
 
-    <!-- 설정 패널 (서버 URL) -->
+    <!-- 설정 패널 (플래닝 엔드포인트) -->
     <div id="settings-panel" class="hidden">
       <div class="settings-inner">
-        <h3>서버 설정</h3>
+        <h3>플래닝 엔드포인트</h3>
         <p class="settings-hint">
-          기본값은 <code>extension/config.js</code> 의 <code>SERVER_URL</code> 입니다. 임시로 다른 서버를 가리키려면 아래에서 변경하세요.
+          사이드패널 입력이 보내질 서버 엔드포인트. 기본값은 <code>/plan/strict</code>.
         </p>
         <div class="input-group">
-          <input
-            type="text"
-            id="server-url-input"
-            placeholder="http://localhost:8000"
-            autocomplete="off"
-            spellcheck="false"
-          />
+          <select id="endpoint-select">
+            <option value="/plan/strict">POST /plan/strict — 안전 규칙 + 클릭 대기 (기본)</option>
+            <option value="/plan">POST /plan — flat 프롬프트, 자동 클릭</option>
+            <option value="/query">POST /query — 임베딩 + 그래프 (레거시)</option>
+          </select>
         </div>
         <div class="settings-actions">
-          <button id="save-server-btn" class="btn-primary">저장</button>
-          <button id="reset-server-btn" class="btn-secondary">기본값</button>
+          <button id="save-endpoint-btn" class="btn-primary">저장</button>
+          <button id="reset-endpoint-btn" class="btn-secondary">기본값</button>
         </div>
-        <p id="server-status" class="hidden"></p>
+        <p id="endpoint-status" class="hidden"></p>
+
+        <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
+        <h3>DB 상태</h3>
+        <p id="db-stats" class="settings-hint">로딩 중…</p>
+        <div class="settings-actions">
+          <button id="refresh-stats-btn" class="btn-secondary">새로고침</button>
+          <button id="reset-db-btn" class="btn-danger">DB 비우기</button>
+        </div>
+        <p id="db-status" class="hidden"></p>
       </div>
     </div>
 

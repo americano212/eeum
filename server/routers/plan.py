@@ -3,6 +3,8 @@ from fastapi import APIRouter
 from models.schemas import (
     AwaitClickAction,
     AwaitClickTextAction,
+    AwaitSelectAction,
+    AwaitTypeAction,
     ClickAction,
     ClickTextAction,
     DomElement,
@@ -88,23 +90,29 @@ async def _run_plan(req: PlanRequest, plan_fn) -> PlanResponse:
     )
 
 
-def _defer_click(action):
-    # 사용자 의도가 "어디로 가줘"가 아닌 한 자동 클릭을 막고
-    # 하이라이트 + 클릭 대기 형태로 바꾼다. navigate/type/select/scroll은 그대로.
+def _defer_action(action):
+    # 자동 클릭/입력을 막고 매 단계를 사용자 위임 형태로 변환.
+    # navigate/scroll/wait/highlight 는 그대로 자동 실행.
     if isinstance(action, ClickAction):
         return AwaitClickAction(xpath=action.xpath)
     if isinstance(action, ClickTextAction):
         return AwaitClickTextAction(text=action.text)
+    if isinstance(action, TypeAction):
+        return AwaitTypeAction(xpath=action.xpath, value=action.value)
+    if isinstance(action, SelectAction):
+        return AwaitSelectAction(xpath=action.xpath, value=action.value)
     return action
 
 
 @router.post("/plan", response_model=PlanResponse)
 async def plan(req: PlanRequest) -> PlanResponse:
-    return await _run_plan(req, llm.plan_actions)
+    resp = await _run_plan(req, llm.plan_actions)
+    resp.actions = [_defer_action(a) for a in resp.actions]
+    return resp
 
 
 @router.post("/plan/strict", response_model=PlanResponse)
 async def plan_strict(req: PlanRequest) -> PlanResponse:
     resp = await _run_plan(req, llm.plan_actions_strict)
-    resp.actions = [_defer_click(a) for a in resp.actions]
+    resp.actions = [_defer_action(a) for a in resp.actions]
     return resp

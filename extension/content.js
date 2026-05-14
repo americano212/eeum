@@ -83,13 +83,29 @@
     return elements.map(({ _el, ...rest }) => rest);
   }
 
-  // ── 3. dom_hash 계산 (구조만, 텍스트 제외) ─────────────────
+  // ── 3. dom_hash 계산 (안정 식별자만, 순서 비의존) ───────────
+  // xpath 는 광고·배너·뉴스 회전 같은 비-구조적 변화에 idx 가 흔들려서 제외.
+  // id / aria-label / name / 짧고 숫자 없는 텍스트(레이블) 가 있는 요소만 채택.
+  // 결과를 정렬해 DOM 순서 변화에 무관하게 만든다.
+  function stableSignature(e) {
+    const text = (e.text || "").trim();
+    const stableText =
+      text.length >= 1 && text.length <= 20 && !/\d/.test(text);
+    if (!e.id && !e.aria_label && !e.name && !stableText) return null;
+    return [
+      e.tag,
+      e.id || "",
+      e.aria_label || "",
+      e.name || "",
+      e.role || "",
+      stableText ? text : "",
+    ].join("|");
+  }
+
   async function computeDomHash(elements) {
-    const sigParts = elements.map(
-      (e) =>
-        `${e.tag}|${e.xpath}|${e.aria_label || ""}|${e.role || ""}`
-    );
-    const sig = sigParts.join("\n");
+    const parts = elements.map(stableSignature).filter(Boolean);
+    parts.sort();
+    const sig = parts.join("\n");
     const data = new TextEncoder().encode(sig);
     const buf = await crypto.subtle.digest("SHA-256", data);
     return Array.from(new Uint8Array(buf))
@@ -332,6 +348,56 @@
     });
   }
 
+  // USER_CONTINUED 신호(사이드패널 "계속" 버튼 → background → content) 대기.
+  // 한 번에 하나의 대기만 활성. background 가 보내는 단발성 메시지.
+  let pendingUserContinue = null;
+
+  // 입력란/셀렉트에 대한 대기 헬퍼.
+  // - 유저가 직접 타이핑/선택 → input/change 이벤트 → userInteracted=true, finalValue=el.value
+  // - 유저가 "계속" → suggested value 자동 입력 → userInteracted=false
+  // - 120초 무반응 → 타임아웃
+  function waitForInput(el, suggestedValue, eventName, timeoutMs = 120000) {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (payload) => {
+        if (done) return;
+        done = true;
+        el.removeEventListener(eventName, onEvent);
+        pendingUserContinue = null;
+        clearTimeout(timer);
+        resolve(payload);
+      };
+      const onEvent = () => {
+        // 유저가 직접 값 변경 — 그 값을 그대로 사용
+        finish({
+          userInteracted: true,
+          finalValue: el.value,
+          timedOut: false,
+        });
+      };
+      el.addEventListener(eventName, onEvent);
+      pendingUserContinue = () => {
+        // 계속 → 제안값 자동 입력
+        el.focus();
+        el.value = suggestedValue;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        finish({
+          userInteracted: false,
+          finalValue: suggestedValue,
+          timedOut: false,
+        });
+      };
+      const timer = setTimeout(() => {
+        finish({
+          userInteracted: false,
+          finalValue: el.value,
+          timedOut: true,
+        });
+      }, timeoutMs);
+    });
+  }
+
   async function executeOne(action) {
     // navigate 는 페이지 전환이라 별도 처리
     if (action.type === "navigate") {
@@ -388,6 +454,32 @@
       return { ok: true, userClicked, timedOut, navigated: navigates, index };
     }
 
+    // await_type — 입력란 영구 하이라이트 + 유저가 직접 타이핑 OR "계속" 버튼.
+    // 계속 누르면 제안 value 자동 입력. 직접 타이핑하면 그 값을 그대로 사용.
+    if (action.type === "await_type") {
+      el.focus();
+      const cleanup = persistentHighlight(el);
+      const { userInteracted, finalValue, timedOut } = await waitForInput(
+        el,
+        action.value,
+        "input"
+      );
+      cleanup();
+      return { ok: true, userInteracted, finalValue, timedOut, index };
+    }
+
+    // await_select — <select> 하이라이트 + 유저 직접 선택 OR "계속" 자동 선택.
+    if (action.type === "await_select") {
+      const cleanup = persistentHighlight(el);
+      const { userInteracted, finalValue, timedOut } = await waitForInput(
+        el,
+        action.value,
+        "change"
+      );
+      cleanup();
+      return { ok: true, userInteracted, finalValue, timedOut, index };
+    }
+
     await highlightElement(el);
 
     switch (action.type) {
@@ -416,6 +508,13 @@
   // ── 10. background 메시지 수신 ─────────────────────────────
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
+      if (msg.type === "USER_CONTINUED") {
+        const resume = pendingUserContinue;
+        pendingUserContinue = null;
+        if (resume) resume();
+        sendResponse({ ok: true });
+        return;
+      }
       if (msg.type === "REQUEST_DOM_SNAPSHOT") {
         const elements = extractElements();
         const hash = await computeDomHash(elements);

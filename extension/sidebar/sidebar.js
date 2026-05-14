@@ -78,6 +78,31 @@
       case "CONVERSATION_CLEARED":
         clearMessagesUI();
         break;
+
+      case "DB_STATS_RESULT": {
+        const d = msg.payload || {};
+        if (d.error) {
+          document.getElementById("db-stats").textContent =
+            `(조회 실패: ${d.error})`;
+        } else {
+          document.getElementById("db-stats").textContent =
+            `Qdrant points : ${d.qdrant_points}\n` +
+            `Neo4j states  : ${d.neo4j_states}\n` +
+            `Neo4j edges   : ${d.neo4j_edges}`;
+        }
+        break;
+      }
+
+      case "DB_RESET_RESULT": {
+        const d = msg.payload || {};
+        if (d.error) {
+          flashDbStatus(`실패: ${d.error}`, "error");
+        } else {
+          flashDbStatus(`✅ 비웠습니다 (state 키 ${d.redis_state_keys_cleared}개 제거)`, "ok");
+          refreshStats();
+        }
+        break;
+      }
     }
   }
 
@@ -120,6 +145,32 @@
     appendMessage("assistant", "작업이 중지되었습니다.");
   });
 
+  // ── 탐색 모드 토글 (DB 채우기) ────────────────────────────
+  const exploreBtn = document.getElementById("explore-btn");
+
+  function renderExploreBtn(on) {
+    exploreBtn.textContent = on ? "● REC" : "OFF";
+    exploreBtn.classList.toggle("explore-on", on);
+    exploreBtn.classList.toggle("explore-off", !on);
+  }
+
+  chrome.storage.local.get("exploration_mode", ({ exploration_mode }) => {
+    renderExploreBtn(!!exploration_mode);
+  });
+
+  exploreBtn.addEventListener("click", async () => {
+    const { exploration_mode } = await chrome.storage.local.get("exploration_mode");
+    const next = !exploration_mode;
+    await chrome.storage.local.set({ exploration_mode: next });
+    renderExploreBtn(next);
+    appendMessage(
+      "assistant",
+      next
+        ? "🔴 탐색 모드 시작. 페이지를 손으로 탐색하면 상태가 자동으로 DB에 적재됩니다."
+        : "⚪ 탐색 모드 종료. STATE_CHANGED 업로드를 중단합니다."
+    );
+  });
+
   // ── 대화 초기화 ────────────────────────────────────────────
   const clearBtn = document.getElementById("clear-btn");
   clearBtn.addEventListener("click", () => {
@@ -137,50 +188,89 @@
     userInput.focus();
   });
 
-  // ── 설정 패널 (서버 URL) ───────────────────────────────────
+  // ── 설정 패널 (플래닝 엔드포인트 선택) ──────────────────────
   const settingsBtn = document.getElementById("settings-btn");
   const settingsPanel = document.getElementById("settings-panel");
-  const serverInput = document.getElementById("server-url-input");
-  const saveBtn = document.getElementById("save-server-btn");
-  const resetBtn = document.getElementById("reset-server-btn");
-  const serverStatus = document.getElementById("server-status");
+  const endpointSelect = document.getElementById("endpoint-select");
+  const saveBtn = document.getElementById("save-endpoint-btn");
+  const resetBtn = document.getElementById("reset-endpoint-btn");
+  const endpointStatus = document.getElementById("endpoint-status");
 
-  chrome.storage.local.get("server_url_override", ({ server_url_override }) => {
-    if (server_url_override) serverInput.value = server_url_override;
+  const DEFAULT_ENDPOINT = "/plan/strict";
+  const VALID_ENDPOINTS = new Set(["/plan/strict", "/plan", "/query"]);
+
+  chrome.storage.local.get("planning_endpoint", ({ planning_endpoint }) => {
+    const value =
+      planning_endpoint && VALID_ENDPOINTS.has(planning_endpoint)
+        ? planning_endpoint
+        : DEFAULT_ENDPOINT;
+    endpointSelect.value = value;
   });
 
   settingsBtn.addEventListener("click", () => {
     settingsPanel.classList.toggle("hidden");
-    if (!settingsPanel.classList.contains("hidden")) serverInput.focus();
+    if (!settingsPanel.classList.contains("hidden")) {
+      endpointSelect.focus();
+      refreshStats();
+    }
+  });
+
+  // ── DB 통계 + 리셋 ────────────────────────────────────────
+  const dbStatsEl = document.getElementById("db-stats");
+  const refreshStatsBtn = document.getElementById("refresh-stats-btn");
+  const resetDbBtn = document.getElementById("reset-db-btn");
+  const dbStatus = document.getElementById("db-status");
+
+  function flashDbStatus(text, kind) {
+    dbStatus.textContent = text;
+    dbStatus.style.color =
+      kind === "error" ? "#e53935" : kind === "warn" ? "#f0a500" : "#43a047";
+    dbStatus.classList.remove("hidden");
+  }
+
+  async function refreshStats() {
+    dbStatsEl.textContent = "로딩 중…";
+    if (!port) {
+      dbStatsEl.textContent = "(백그라운드 연결 없음)";
+      return;
+    }
+    port.postMessage({ type: "DB_STATS" });
+  }
+
+  refreshStatsBtn.addEventListener("click", refreshStats);
+
+  resetDbBtn.addEventListener("click", () => {
+    const ok = confirm(
+      "Qdrant 포인트, Neo4j 노드/엣지, Redis state 캐시를 모두 비웁니다. 계속할까요?"
+    );
+    if (!ok) return;
+    flashDbStatus("DB 비우는 중…", "warn");
+    if (port) port.postMessage({ type: "DB_RESET" });
   });
 
   saveBtn.addEventListener("click", () => {
-    const url = serverInput.value.trim();
-    if (!url) {
-      flashStatus("URL을 입력해주세요.", "error");
+    const value = endpointSelect.value;
+    if (!VALID_ENDPOINTS.has(value)) {
+      flashStatus("알 수 없는 엔드포인트입니다.", "error");
       return;
     }
-    if (!/^https?:\/\//.test(url)) {
-      flashStatus("http:// 또는 https:// 로 시작해야 합니다.", "warn");
-      return;
-    }
-    chrome.storage.local.set({ server_url_override: url }, () => {
-      flashStatus("✅ 저장됨. 다음 요청부터 적용됩니다.", "ok");
+    chrome.storage.local.set({ planning_endpoint: value }, () => {
+      flashStatus(`✅ 저장됨: ${value}. 다음 요청부터 적용됩니다.`, "ok");
     });
   });
 
   resetBtn.addEventListener("click", () => {
-    chrome.storage.local.remove("server_url_override", () => {
-      serverInput.value = "";
-      flashStatus("기본값으로 되돌렸습니다.", "ok");
+    chrome.storage.local.remove("planning_endpoint", () => {
+      endpointSelect.value = DEFAULT_ENDPOINT;
+      flashStatus(`기본값(${DEFAULT_ENDPOINT})으로 되돌렸습니다.`, "ok");
     });
   });
 
   function flashStatus(text, kind) {
-    serverStatus.textContent = text;
-    serverStatus.style.color =
+    endpointStatus.textContent = text;
+    endpointStatus.style.color =
       kind === "error" ? "#e53935" : kind === "warn" ? "#f0a500" : "#43a047";
-    serverStatus.classList.remove("hidden");
+    endpointStatus.classList.remove("hidden");
   }
 
   // ── 메시지 렌더링 ──────────────────────────────────────────
@@ -312,7 +402,7 @@
   function describeAction(action) {
     switch (action.type) {
       case "navigate":  return `${action.url} 로 이동`;
-      case "click":     return `요소 클릭 (${action.xpath})`;
+      case "click":     return "요소 클릭";
       case "click_text":return `"${action.text}" 클릭`;
       case "type":
         const v = (action.value ?? "").length > 20
@@ -321,9 +411,15 @@
         return `"${v}" 입력`;
       case "select":    return `"${action.value}" 선택`;
       case "scroll":    return `${action.direction === "down" ? "아래로" : "위로"} 스크롤 (${action.amount}px)`;
-      case "highlight": return `요소 강조 (${action.xpath})`;
-      case "await_click": return `강조된 요소 클릭 대기 (${action.xpath})`;
+      case "highlight": return "요소 강조";
+      case "await_click": return "강조된 요소 클릭 대기";
       case "await_click_text": return `"${action.text}" 클릭 대기`;
+      case "await_type":
+        const tv = (action.value ?? "").length > 20
+          ? action.value.slice(0, 20) + "..."
+          : action.value;
+        return `"${tv}" 입력 대기`;
+      case "await_select": return `"${action.value}" 선택 대기`;
       case "wait":      return `${action.ms}ms 대기`;
       case "wait_for_user": return "사용자 확인 대기";
       default: return action.type;

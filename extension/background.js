@@ -72,9 +72,64 @@ async function callDomUpload(payload) {
   return data;
 }
 
+const DEFAULT_ENDPOINT = "/plan/strict";
+const VALID_ENDPOINTS = new Set(["/plan/strict", "/plan", "/query"]);
+
+function deferClickAction(a) {
+  if (!a || typeof a !== "object") return a;
+  if (a.type === "click") return { type: "await_click", xpath: a.xpath };
+  if (a.type === "click_text") return { type: "await_click_text", text: a.text };
+  if (a.type === "type") return { type: "await_type", xpath: a.xpath, value: a.value };
+  if (a.type === "select") return { type: "await_select", xpath: a.xpath, value: a.value };
+  return a;
+}
+
+const AWAIT_INPUT_ACTIONS = new Set(["await_type", "await_select"]);
+
+async function getPlanningEndpoint() {
+  const { planning_endpoint } = await chrome.storage.local.get("planning_endpoint");
+  if (planning_endpoint && VALID_ENDPOINTS.has(planning_endpoint)) {
+    return planning_endpoint;
+  }
+  return DEFAULT_ENDPOINT;
+}
+
 async function callPlan(query, snapshot) {
   const sess = await getSession();
-  const data = await postJSON("/plan/strict", {
+  const endpoint = await getPlanningEndpoint();
+
+  if (endpoint === "/query") {
+    // 레거시: QueryResponse → 통일된 plan 형식으로 어댑트.
+    // 모든 클릭은 await_click 으로 위임(자동 클릭 안 함).
+    const data = await postJSON("/query", {
+      session_id: sess.session_id,
+      query,
+      current_state_id: snapshot.state_id,
+      current_url: snapshot.url,
+      current_dom_hash: snapshot.dom_hash,
+      current_elements: snapshot.elements,
+    });
+    await saveSession(data.session_id, data.expires_at);
+    const target = data.target_element;
+    const navPath = (data.navigation_path || []).map(deferClickAction);
+    // 캡처된 xpath 는 페이지 변동에 약하니, target 의 text 가 있으면 text 매칭을 우선.
+    const finalClick = target
+      ? (target.text && target.text.trim()
+          ? [{ type: "await_click_text", text: target.text.trim() }]
+          : [{ type: "await_click", xpath: target.xpath }])
+      : [];
+    return {
+      session_id: data.session_id,
+      expires_at: data.expires_at,
+      explanation: target
+        ? `'${target.text || target.tag}' 요소를 찾았습니다.`
+        : "관련 요소를 찾지 못했습니다.",
+      actions: [...navPath, ...finalClick],
+      needs_more_elements: !target,
+    };
+  }
+
+  const data = await postJSON(endpoint, {
     session_id: sess.session_id,
     query,
     current_url: snapshot.url,
@@ -130,19 +185,49 @@ async function fetchCurrentSnapshot(tabId) {
 
 const RESTRICTED_URL_RE = /^(chrome|edge|brave|about|chrome-extension|view-source):/i;
 
+function isRestrictedUrl(url) {
+  return !url || RESTRICTED_URL_RE.test(url);
+}
+
+function emptySnapshot(url) {
+  return {
+    state_id: `${url || "about:blank"}|empty`,
+    url: url || "about:blank",
+    dom_hash: "empty",
+    elements: [],
+  };
+}
+
+async function isExplorationOn() {
+  const { exploration_mode } = await chrome.storage.local.get("exploration_mode");
+  return !!exploration_mode;
+}
+
 // ── content script 가 STATE_CHANGED 알릴 때 처리 ───────────
+// 탐색 모드 ON 일 때만 /dom/upload 로 적재. OFF 이면 무시.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type !== "STATE_CHANGED") return;
 
   (async () => {
     try {
+      if (!(await isExplorationOn())) {
+        sendResponse({ ok: false, reason: "exploration_off" });
+        return;
+      }
       const check = await callDomCheck({
         state_id: msg.payload.state_id,
         url: msg.payload.url,
         dom_hash: msg.payload.dom_hash,
       });
       if (check.cache_miss) {
-        await callDomUpload(msg.payload);
+        const uploaded = await callDomUpload(msg.payload);
+        // 사이드패널이 열려 있으면 캡처 알림
+        activePort?.postMessage({
+          type: "ASSISTANT_MESSAGE",
+          payload: {
+            text: `📥 캡처: ${msg.payload.url} (${uploaded.stored}개 요소)`,
+          },
+        });
       }
       sendResponse({ ok: true });
     } catch (err) {
@@ -157,7 +242,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 const runtime = {
   running: false,
   resumeResolver: null,
+  awaitingInputTabId: null, // await_type/await_select 진행 중일 때 set
 };
+
+function instructionFor(action) {
+  if (action.type === "await_type") {
+    return `'${action.value}' 를 입력란에 직접 입력하거나 "계속" 버튼을 누르면 자동으로 입력합니다.`;
+  }
+  if (action.type === "await_select") {
+    return `'${action.value}' 를 드롭다운에서 직접 고르거나 "계속" 버튼을 누르면 자동 선택합니다.`;
+  }
+  return "";
+}
 
 async function runActions(actions, tabId, port) {
   runtime.running = true;
@@ -172,10 +268,47 @@ async function runActions(actions, tabId, port) {
       payload: { action, stepIndex: i, total },
     });
 
-    const result = await sendToTab(tabId, {
-      type: "EXECUTE_ACTION",
-      payload: { action },
-    });
+    // restricted 페이지(chrome://newtab 등)에서는 content script 주입 불가.
+    // navigate 만 chrome.tabs.update 로 직접 처리하고, 그 외 액션은 에러.
+    const tabInfo = await chrome.tabs.get(tabId).catch(() => null);
+    const onRestricted = isRestrictedUrl(tabInfo?.url);
+
+    let result;
+    if (onRestricted) {
+      if (action.type === "navigate") {
+        try {
+          await chrome.tabs.update(tabId, { url: action.url });
+          // 페이지 로드 + content script 정착 대기
+          await new Promise((r) => setTimeout(r, 1800));
+          result = { ok: true, navigated: true };
+        } catch (err) {
+          result = { ok: false, error: String(err.message || err) };
+        }
+      } else {
+        result = {
+          ok: false,
+          error:
+            "현재 브라우저 내부 페이지에서는 실행할 수 없습니다. 먼저 navigate 액션이 필요합니다.",
+        };
+      }
+    } else {
+      // await_type/await_select 는 content.js 가 끝날 때까지 블록되므로
+      // 사이드패널 안내(WAIT_FOR_USER) 를 먼저 띄우고, RESUME 신호를 content 로 포워딩.
+      if (AWAIT_INPUT_ACTIONS.has(action.type)) {
+        runtime.awaitingInputTabId = tabId;
+        port?.postMessage({
+          type: "WAIT_FOR_USER",
+          payload: { instruction: instructionFor(action) },
+        });
+      }
+
+      result = await sendToTab(tabId, {
+        type: "EXECUTE_ACTION",
+        payload: { action },
+      });
+
+      runtime.awaitingInputTabId = null;
+    }
 
     if (!result || !result.ok) {
       port?.postMessage({
@@ -247,17 +380,17 @@ chrome.runtime.onConnect.addListener((port) => {
 
         const tabInfo = await chrome.tabs.get(tabId).catch(() => null);
         const tabUrl = tabInfo?.url || "";
-        if (!tabUrl || RESTRICTED_URL_RE.test(tabUrl)) {
-          throw new Error(
-            "브라우저 내부 페이지(chrome://, 확장프로그램 페이지 등)에서는 동작하지 않습니다. 일반 웹사이트로 이동해주세요."
-          );
-        }
 
-        const snapshot = await fetchCurrentSnapshot(tabId);
-        if (!snapshot?.state_id) {
-          throw new Error(
-            "페이지 콘텐츠를 인식하지 못했습니다. 페이지를 새로고침한 뒤 다시 시도해주세요."
-          );
+        // restricted 페이지(chrome://newtab 등)거나 content script 가 못 붙는 경우
+        // → 빈 elements 로 plan 호출. LLM 이 navigate-only 응답을 만들 수 있게.
+        let snapshot;
+        if (isRestrictedUrl(tabUrl)) {
+          snapshot = emptySnapshot(tabUrl);
+        } else {
+          snapshot = await fetchCurrentSnapshot(tabId);
+          if (!snapshot?.state_id) {
+            snapshot = emptySnapshot(tabUrl);
+          }
         }
 
         const response = await callPlan(msg.payload.text, snapshot);
@@ -290,6 +423,10 @@ chrome.runtime.onConnect.addListener((port) => {
         runtime.resumeResolver = null;
       }
     } else if (msg.type === "RESUME_AUTOMATION") {
+      // await_type/await_select 가 진행 중이면 content.js 에 직접 신호 전달.
+      if (runtime.awaitingInputTabId) {
+        sendToTab(runtime.awaitingInputTabId, { type: "USER_CONTINUED" });
+      }
       if (runtime.resumeResolver) {
         runtime.resumeResolver();
         runtime.resumeResolver = null;
@@ -297,6 +434,30 @@ chrome.runtime.onConnect.addListener((port) => {
     } else if (msg.type === "CLEAR_CONVERSATION") {
       await clearSession();
       port.postMessage({ type: "CONVERSATION_CLEARED" });
+    } else if (msg.type === "DB_STATS") {
+      try {
+        const baseUrl = await getServerUrl();
+        const res = await fetch(`${baseUrl}/admin/stats`);
+        const data = await res.json();
+        port.postMessage({ type: "DB_STATS_RESULT", payload: data });
+      } catch (err) {
+        port.postMessage({
+          type: "DB_STATS_RESULT",
+          payload: { error: String(err.message || err) },
+        });
+      }
+    } else if (msg.type === "DB_RESET") {
+      try {
+        const baseUrl = await getServerUrl();
+        const res = await fetch(`${baseUrl}/admin/reset`, { method: "POST" });
+        const data = await res.json();
+        port.postMessage({ type: "DB_RESET_RESULT", payload: data });
+      } catch (err) {
+        port.postMessage({
+          type: "DB_RESET_RESULT",
+          payload: { error: String(err.message || err) },
+        });
+      }
     }
   });
 
