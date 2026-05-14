@@ -158,10 +158,34 @@
   const userInput = document.getElementById("user-input");
   const charCount = document.getElementById("char-count");
   const maxInputLength = Number(userInput.getAttribute("maxlength") || 500);
+  let isComposingText = false;
+  let suppressNextEnter = false;
 
   sendBtn.addEventListener("click", sendMessage);
+  userInput.addEventListener("compositionstart", () => {
+    isComposingText = true;
+  });
+  userInput.addEventListener("compositionend", () => {
+    isComposingText = false;
+    setTimeout(updateInputState, 0);
+    setTimeout(() => {
+      suppressNextEnter = false;
+    }, 120);
+  });
   userInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
+      const composing = e.isComposing || e.keyCode === 229 || isComposingText;
+      if (composing) {
+        suppressNextEnter = true;
+        setTimeout(() => {
+          suppressNextEnter = false;
+        }, 120);
+        return;
+      }
+      if (suppressNextEnter) {
+        e.preventDefault();
+        return;
+      }
       e.preventDefault();
       sendMessage();
     }
