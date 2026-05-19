@@ -4,6 +4,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from core.config import settings
+from services import metrics
 
 
 _client: AsyncOpenAI | None = None
@@ -44,6 +45,12 @@ async def extract(query: str) -> dict[str, Any]:
         response_format={"type": "json_object"},
         temperature=0.0,
     )
+    usage = getattr(response, "usage", None)
+    if usage is not None:
+        metrics.add_chat(
+            getattr(usage, "prompt_tokens", 0) or 0,
+            getattr(usage, "completion_tokens", 0) or 0,
+        )
     text = response.choices[0].message.content or "{}"
     try:
         data = json.loads(text)

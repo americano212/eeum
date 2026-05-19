@@ -1,3 +1,4 @@
+import time
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException
@@ -9,8 +10,9 @@ from models.schemas import (
     QueryRequest,
     QueryResponse,
     TargetElement,
+    TokenUsage,
 )
-from services import embedding, graph, intent, session, vector_store
+from services import embedding, graph, intent, metrics, session, vector_store
 
 
 _KR_2LD = {"co", "or", "ne", "ac", "go", "re", "pe"}
@@ -45,6 +47,9 @@ router = APIRouter(tags=["query"])
 
 @router.post("/query", response_model=QueryResponse)
 async def query(req: QueryRequest) -> QueryResponse:
+    metrics.start()
+    t0 = time.perf_counter()
+
     session_id, expires_at = await session.touch_or_create(req.session_id)
 
     # 현재 DOM이 함께 왔고 아직 인덱싱되지 않았다면 즉시 업서트 (인덱스 비어있어도 동작 보장)
@@ -172,9 +177,12 @@ async def query(req: QueryRequest) -> QueryResponse:
             else:
                 navigation_path.append(NavigateAction(url=top["url"]))
 
+    processing_ms = int((time.perf_counter() - t0) * 1000)
     return QueryResponse(
         session_id=session_id,
         expires_at=expires_at,
         target_element=target,
         navigation_path=navigation_path,
+        processing_ms=processing_ms,
+        tokens=TokenUsage(**metrics.snapshot()),
     )

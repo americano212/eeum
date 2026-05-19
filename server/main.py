@@ -2,7 +2,15 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from routers import admin, conversations as conversations_router, dom, plan, query
+from routers import (
+    admin,
+    baseline,
+    conversations as conversations_router,
+    dom,
+    judge,
+    plan,
+    query,
+)
 from services import conversations, graph, vector_store
 
 
@@ -26,6 +34,8 @@ app = FastAPI(
 app.include_router(dom.router)
 app.include_router(query.router)
 app.include_router(plan.router)
+app.include_router(baseline.router)
+app.include_router(judge.router)
 app.include_router(admin.router)
 app.include_router(conversations_router.router)
 

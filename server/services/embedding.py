@@ -1,6 +1,7 @@
 from openai import AsyncOpenAI
 
 from core.config import settings
+from services import metrics
 
 
 _client: AsyncOpenAI | None = None
@@ -20,6 +21,9 @@ async def embed(texts: list[str]) -> list[list[float]]:
         model=settings.embedding_model,
         input=texts,
     )
+    usage = getattr(response, "usage", None)
+    if usage is not None:
+        metrics.add_embedding(getattr(usage, "total_tokens", 0) or 0)
     return [item.embedding for item in response.data]
 
 

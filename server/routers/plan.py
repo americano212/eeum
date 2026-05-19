@@ -1,3 +1,5 @@
+import time
+
 from fastapi import APIRouter
 
 from models.schemas import (
@@ -16,11 +18,12 @@ from models.schemas import (
     ScrollAction,
     SelectAction,
     SiteSearchAction,
+    TokenUsage,
     TypeAction,
     WaitAction,
     WaitForUserAction,
 )
-from services import conversations, llm, safety, session
+from services import conversations, llm, metrics, safety, session
 
 
 # 대화 맥락에 포함할 최대 메시지 수 — 토큰 비용 vs 컨텍스트 풍부도의 트레이드오프.
@@ -77,6 +80,9 @@ def _action_from_llm(a: dict, elements: list[DomElement]):
 
 
 async def _run_plan(req: PlanRequest, plan_fn) -> PlanResponse:
+    metrics.start()
+    t0 = time.perf_counter()
+
     session_id, expires_at = await session.touch_or_create(req.session_id)
 
     # 익스텐션은 /plan 직전에 user 메시지를 /conversations/log 로 push 하므로
@@ -105,12 +111,15 @@ async def _run_plan(req: PlanRequest, plan_fn) -> PlanResponse:
     # 결정적 안전 게이트 — LLM 이 S1~S4 를 어겼더라도 여기서 강제 교정.
     actions = safety.apply(actions, elements_used)
 
+    processing_ms = int((time.perf_counter() - t0) * 1000)
     return PlanResponse(
         session_id=session_id,
         expires_at=expires_at,
         explanation=raw_plan.get("explanation") or "",
         actions=actions,
         needs_more_elements=bool(raw_plan.get("needs_more_elements")),
+        processing_ms=processing_ms,
+        tokens=TokenUsage(**metrics.snapshot()),
     )
 
 

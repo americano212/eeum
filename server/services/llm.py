@@ -5,7 +5,7 @@ from openai import AsyncOpenAI
 
 from core.config import settings
 from models.schemas import DomElement
-from services import element_ranker, few_shot, official_site, site_rules
+from services import element_ranker, few_shot, metrics, official_site, site_rules
 
 
 _client: AsyncOpenAI | None = None
@@ -340,6 +340,12 @@ async def _call_chat(
         response_format={"type": "json_object"},
         temperature=temperature,
     )
+    usage = getattr(response, "usage", None)
+    if usage is not None:
+        metrics.add_chat(
+            getattr(usage, "prompt_tokens", 0) or 0,
+            getattr(usage, "completion_tokens", 0) or 0,
+        )
     text = response.choices[0].message.content or "{}"
     try:
         return json.loads(text)
