@@ -21,7 +21,6 @@
         <span class="logo-text">DOM Navigator</span>
       </div>
       <div class="header-actions">
-        <button id="explore-btn" class="explore-off" title="탐색 모드 (DB 채우기)">OFF</button>
         <button id="history-btn" title="대화 내역" aria-label="대화 내역">
           <svg class="header-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M8 6h13"></path>
@@ -66,7 +65,7 @@
       </ul>
     </div>
 
-    <!-- 설정 패널 (엔드포인트 + 서버 URL + DB) -->
+    <!-- 설정 패널 (엔드포인트 + DB) -->
     <div id="settings-panel" class="hidden">
       <div class="settings-inner">
         <h3>플래닝 엔드포인트</h3>
@@ -85,27 +84,6 @@
           <button id="reset-endpoint-btn" class="btn-secondary">기본값</button>
         </div>
         <p id="endpoint-status" class="hidden"></p>
-
-        <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
-
-        <h3>서버 주소</h3>
-        <p class="settings-hint">
-          기본값은 <code>extension/config.js</code> 의 <code>SERVER_URL</code> 입니다. 임시로 다른 서버를 가리키려면 아래에서 변경하세요.
-        </p>
-        <div class="input-group">
-          <input
-            type="text"
-            id="server-url-input"
-            placeholder="http://localhost:8000"
-            autocomplete="off"
-            spellcheck="false"
-          />
-        </div>
-        <div class="settings-actions">
-          <button id="save-server-btn" class="btn-primary">저장</button>
-          <button id="reset-server-btn" class="btn-secondary">기본값</button>
-        </div>
-        <p id="server-status" class="hidden"></p>
 
         <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
 

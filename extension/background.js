@@ -78,17 +78,9 @@ function deferClickAction(a) {
 
 const AWAIT_INPUT_ACTIONS = new Set(["await_type", "await_select"]);
 
-async function isExplorationOn() {
-  const { exploration_mode } = await chrome.storage.local.get("exploration_mode");
-  return !!exploration_mode;
-}
-
-// ── 서버 URL 확인 (override 있으면 우선) ───────────────────
+// ── 서버 URL ─────────────────────────────────────────────
 async function getServerUrl() {
-  const { server_url_override } = await chrome.storage.local.get(
-    "server_url_override"
-  );
-  return (server_url_override || CFG.SERVER_URL).replace(/\/+$/, "");
+  return CFG.SERVER_URL.replace(/\/+$/, "");
 }
 
 // ── 서버 호출 헬퍼 ─────────────────────────────────────────
@@ -133,13 +125,6 @@ async function unregisterKnownSession(session_id) {
   if (next.length !== list.length) {
     await chrome.storage.local.set({ known_sessions: next });
   }
-}
-
-async function callDomCheck(payload) {
-  const sess = await getSession();
-  const data = await postJSON("/dom/check", { ...payload, session_id: sess.session_id });
-  await saveSession(data.session_id, data.expires_at);
-  return data;
 }
 
 // ── 대화 로그 ──────────────────────────────────────────────
@@ -224,13 +209,6 @@ async function notifySidebar(port, msg) {
   port?.postMessage(msg);
   const log = logFromOutgoing(msg);
   if (log) await postLog(log.role, log.content);
-}
-
-async function callDomUpload(payload) {
-  const sess = await getSession();
-  const data = await postJSON("/dom/upload", { ...payload, session_id: sess.session_id });
-  await saveSession(data.session_id, data.expires_at);
-  return data;
 }
 
 // query에 명시적으로 다른 사이트가 등장하면 현재 페이지 elements를 무시하고
@@ -445,41 +423,6 @@ async function handleRestrictedPage(tabId, query, port) {
   await new Promise((r) => setTimeout(r, 800));
   await runActions(remaining, tabId, port);
 }
-
-// ── content script 가 STATE_CHANGED 알릴 때 처리 ───────────
-// 탐색 모드 ON 일 때만 /dom/upload 로 적재. OFF 이면 무시.
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type !== "STATE_CHANGED") return;
-
-  (async () => {
-    try {
-      if (!(await isExplorationOn())) {
-        sendResponse({ ok: false, reason: "exploration_off" });
-        return;
-      }
-      const check = await callDomCheck({
-        state_id: msg.payload.state_id,
-        url: msg.payload.url,
-        dom_hash: msg.payload.dom_hash,
-      });
-      if (check.cache_miss) {
-        const uploaded = await callDomUpload(msg.payload);
-        // 사이드패널이 열려 있으면 캡처 알림
-        activePort?.postMessage({
-          type: "ASSISTANT_MESSAGE",
-          payload: {
-            text: `📥 캡처: ${msg.payload.url} (${uploaded.stored}개 요소)`,
-          },
-        });
-      }
-      sendResponse({ ok: true });
-    } catch (err) {
-      console.warn("[eeum] state sync failed:", err);
-      sendResponse({ ok: false, error: String(err) });
-    }
-  })();
-  return true;
-});
 
 // ── 액션 실행 파이프라인 ───────────────────────────────────
 const runtime = {

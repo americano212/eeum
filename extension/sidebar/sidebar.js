@@ -2,7 +2,6 @@
 // Sidebar Script
 //   - background 와 Port 통신
 //   - 채팅 메시지/액션 진행/대기 UI 렌더링
-//   - 서버 URL override (chrome.storage.local)
 // ============================================================
 
 (function () {
@@ -230,32 +229,6 @@
     setStatus("ready", "중지됨");
   });
 
-  // ── 탐색 모드 토글 (DB 채우기) ────────────────────────────
-  const exploreBtn = document.getElementById("explore-btn");
-
-  function renderExploreBtn(on) {
-    exploreBtn.textContent = on ? "● REC" : "OFF";
-    exploreBtn.classList.toggle("explore-on", on);
-    exploreBtn.classList.toggle("explore-off", !on);
-  }
-
-  chrome.storage.local.get("exploration_mode", ({ exploration_mode }) => {
-    renderExploreBtn(!!exploration_mode);
-  });
-
-  exploreBtn.addEventListener("click", async () => {
-    const { exploration_mode } = await chrome.storage.local.get("exploration_mode");
-    const next = !exploration_mode;
-    await chrome.storage.local.set({ exploration_mode: next });
-    renderExploreBtn(next);
-    appendMessage(
-      "assistant",
-      next
-        ? "🔴 탐색 모드 시작. 페이지를 손으로 탐색하면 상태가 자동으로 DB에 적재됩니다."
-        : "⚪ 탐색 모드 종료. STATE_CHANGED 업로드를 중단합니다."
-    );
-  });
-
   // ── 대화 초기화 ────────────────────────────────────────────
   const clearBtn = document.getElementById("clear-btn");
   clearBtn.addEventListener("click", () => {
@@ -411,9 +384,17 @@
   });
 
   // ── 설정 패널 ───────────────────────────────────
-  // 세 가지 섹션 통합: 플래닝 엔드포인트 / 서버 URL / DB 상태.
+  // 두 섹션: 플래닝 엔드포인트 / DB 상태.
   const settingsBtn = document.getElementById("settings-btn");
   const settingsPanel = document.getElementById("settings-panel");
+
+  settingsBtn.addEventListener("click", () => {
+    settingsPanel.classList.toggle("hidden");
+    if (!settingsPanel.classList.contains("hidden")) {
+      endpointSelect.focus();
+      refreshStats();
+    }
+  });
 
   // ── 1) 플래닝 엔드포인트 ─────────────────────
   const endpointSelect = document.getElementById("endpoint-select");
@@ -457,54 +438,7 @@
     endpointStatus.classList.remove("hidden");
   }
 
-  // ── 2) 서버 URL override ─────────────────────
-  const serverInput = document.getElementById("server-url-input");
-  const saveServerBtn = document.getElementById("save-server-btn");
-  const resetServerBtn = document.getElementById("reset-server-btn");
-  const serverStatus = document.getElementById("server-status");
-
-  chrome.storage.local.get("server_url_override", ({ server_url_override }) => {
-    if (server_url_override) serverInput.value = server_url_override;
-  });
-
-  settingsBtn.addEventListener("click", () => {
-    settingsPanel.classList.toggle("hidden");
-    if (!settingsPanel.classList.contains("hidden")) {
-      endpointSelect.focus();
-      refreshStats();
-    }
-  });
-
-  saveServerBtn.addEventListener("click", () => {
-    const url = serverInput.value.trim();
-    if (!url) {
-      flashServerStatus("URL을 입력해주세요.", "error");
-      return;
-    }
-    if (!/^https?:\/\//.test(url)) {
-      flashServerStatus("http:// 또는 https:// 로 시작해야 합니다.", "warn");
-      return;
-    }
-    chrome.storage.local.set({ server_url_override: url }, () => {
-      flashServerStatus("✅ 저장됨. 다음 요청부터 적용됩니다.", "ok");
-    });
-  });
-
-  resetServerBtn.addEventListener("click", () => {
-    chrome.storage.local.remove("server_url_override", () => {
-      serverInput.value = "";
-      flashServerStatus("기본값으로 되돌렸습니다.", "ok");
-    });
-  });
-
-  function flashServerStatus(text, kind) {
-    serverStatus.textContent = text;
-    serverStatus.style.color =
-      kind === "error" ? "#e53935" : kind === "warn" ? "#f0a500" : "#43a047";
-    serverStatus.classList.remove("hidden");
-  }
-
-  // ── 3) DB 통계 + 리셋 ────────────────────────
+  // ── 2) DB 통계 + 리셋 ────────────────────────
   const dbStatsEl = document.getElementById("db-stats");
   const refreshStatsBtn = document.getElementById("refresh-stats-btn");
   const resetDbBtn = document.getElementById("reset-db-btn");

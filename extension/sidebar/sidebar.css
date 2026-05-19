@@ -182,37 +182,6 @@ header {
   50% { transform: scale(1.45); opacity: 0.55; }
 }
 
-/* ── 탐색 모드 토글 (헤더) ── */
-#explore-btn {
-  background: rgba(255,255,255,0.1);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: rgba(255,255,255,0.86);
-  font-size: 11px;
-  font-weight: 400;
-  letter-spacing: -0.08px;
-  padding: 4px 10px;
-  margin-right: 4px;
-  border-radius: 9999px;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background 0.2s, border-color 0.2s, color 0.2s;
-}
-
-#explore-btn:hover {
-  background: rgba(255,255,255,0.16);
-}
-
-#explore-btn.explore-on {
-  border-color: var(--danger);
-  color: white;
-  animation: explorePulse 1.4s ease-in-out infinite;
-}
-
-@keyframes explorePulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(229,57,53,0.5); }
-  50%      { box-shadow: 0 0 0 5px rgba(229,57,53,0); }
-}
-
 /* ── 대화 내역 패널 ── */
 #history-panel {
   background: var(--bg-white);
@@ -446,7 +415,6 @@ header {
   gap: 8px;
 }
 
-#server-status,
 #endpoint-status,
 #db-status {
   margin-top: 8px;

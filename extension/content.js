@@ -1,10 +1,8 @@
 // ============================================================
 // Content Script
 //   - 인터랙션 요소 추출 + xpath/dom_hash 계산
-//   - URL/MutationObserver 기반 상태 변화 감지
-//   - 클릭 시 trigger_xpath 임시 기록 (500ms window)
-//   - background 와 통신: STATE_CHANGED, EXECUTE_ACTIONS
-//   - 서버 액션(xpath) → 현재 DOM 의 index 로 변환 후 실행
+//   - background 의 REQUEST_DOM_SNAPSHOT 요청에 응답
+//   - 서버 액션(xpath) → 현재 DOM 의 요소로 변환 후 실행
 // ============================================================
 
 (function () {
@@ -114,132 +112,10 @@
       .join("");
   }
 
-  // ── 4. 상태 추적 ───────────────────────────────────────────
-  let currentStateId = null;
-  let previousStateId = null;
-  let lastElementCount = 0;
-  let pendingTriggerXpath = null;
-  let pendingTriggerExpiresAt = 0;
-
+  // ── 4. 상태 식별자 ─────────────────────────────────────────
   function makeStateId(url, hash) {
     return `${url}|${hash}`;
   }
-
-  async function snapshotAndSync(reason) {
-    const elements = extractElements();
-    const hash = await computeDomHash(elements);
-    const url = location.href;
-    const newStateId = makeStateId(url, hash);
-
-    if (newStateId === currentStateId) {
-      lastElementCount = elements.length;
-      return;
-    }
-
-    previousStateId = currentStateId;
-    currentStateId = newStateId;
-
-    const triggerXpath =
-      Date.now() <= pendingTriggerExpiresAt ? pendingTriggerXpath : null;
-    pendingTriggerXpath = null;
-    pendingTriggerExpiresAt = 0;
-
-    try {
-      if (!chrome.runtime?.id) return;
-      chrome.runtime
-        .sendMessage({
-          type: "STATE_CHANGED",
-          payload: {
-            state_id: newStateId,
-            url,
-            dom_hash: hash,
-            referrer_state_id: previousStateId,
-            trigger_xpath: triggerXpath,
-            elements: stripInternal(elements),
-          },
-        })
-        .catch(() => {}); // background 가 아직 안 깨어있어도 무시
-    } catch {
-      return;
-    }
-
-    lastElementCount = elements.length;
-  }
-
-  // ── 5. URL 변화 감지 ───────────────────────────────────────
-  (function patchHistory() {
-    const wrap = (name) => {
-      const orig = history[name];
-      history[name] = function () {
-        const ret = orig.apply(this, arguments);
-        window.dispatchEvent(new Event("eeum:urlchange"));
-        return ret;
-      };
-    };
-    wrap("pushState");
-    wrap("replaceState");
-  })();
-
-  window.addEventListener("popstate", () =>
-    window.dispatchEvent(new Event("eeum:urlchange"))
-  );
-  window.addEventListener("hashchange", () =>
-    window.dispatchEvent(new Event("eeum:urlchange"))
-  );
-  window.addEventListener("eeum:urlchange", () =>
-    scheduleSnapshot("url-change", 100)
-  );
-
-  // ── 6. MutationObserver ────────────────────────────────────
-  const MAIN_CONTAINERS = ["main", '[role="main"]', "dialog", '[role="tabpanel"]'];
-
-  let snapshotTimer = null;
-  function scheduleSnapshot(reason, delay = CFG.OBSERVER_DEBOUNCE_MS) {
-    clearTimeout(snapshotTimer);
-    snapshotTimer = setTimeout(() => snapshotAndSync(reason), delay);
-  }
-
-  const observer = new MutationObserver((mutations) => {
-    let containerSwapped = false;
-    for (const m of mutations) {
-      for (const node of m.addedNodes) {
-        if (node.nodeType !== 1) continue;
-        if (MAIN_CONTAINERS.some((s) => node.matches?.(s))) {
-          containerSwapped = true;
-          break;
-        }
-      }
-      if (containerSwapped) break;
-    }
-
-    if (containerSwapped) {
-      scheduleSnapshot("container-swap");
-      return;
-    }
-
-    // 인터랙션 요소 수 ±N 이상 변화 시 보조 트리거
-    const currentCount = document.querySelectorAll(SELECTOR).length;
-    if (Math.abs(currentCount - lastElementCount) >= CFG.ELEMENT_CHANGE_THRESHOLD) {
-      scheduleSnapshot("element-count");
-    }
-  });
-
-  observer.observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-  });
-
-  // ── 7. trigger_xpath 추적 ──────────────────────────────────
-  document.addEventListener(
-    "click",
-    (e) => {
-      const target = e.target.closest(SELECTOR);
-      if (!target) return;
-      pendingTriggerXpath = getXPath(target);
-      pendingTriggerExpiresAt = Date.now() + CFG.TRIGGER_WINDOW_MS;
-    },
-    true
-  );
 
   // ── 8. xpath → index 변환 (액션 실행 직전) ─────────────────
   function findIndexByXpath(xpath, elements) {
@@ -617,16 +493,10 @@
           state_id: makeStateId(location.href, hash),
           url: location.href,
           dom_hash: hash,
-          referrer_state_id: previousStateId,
+          referrer_state_id: null,
           trigger_xpath: null,
           elements: stripInternal(elements),
         });
-        return;
-      }
-
-      if (msg.type === "GET_CURRENT_STATE") {
-        if (!currentStateId) await snapshotAndSync("get-current");
-        sendResponse({ state_id: currentStateId });
         return;
       }
 
@@ -638,11 +508,4 @@
     })();
     return true; // async response
   });
-
-  // ── 11. 초기 스냅샷 ────────────────────────────────────────
-  if (document.readyState === "complete") {
-    scheduleSnapshot("initial", 300);
-  } else {
-    window.addEventListener("load", () => scheduleSnapshot("initial", 300));
-  }
 })();
