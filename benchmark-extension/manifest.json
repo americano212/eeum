@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "eeum Benchmark (admin)",
+  "version": "0.1.0",
+  "description": "eeum 벤치마크 관리자 익스텐션 — 테스트 케이스 생성/실행, DB 채우기, 결과 대시보드.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "sidePanel",
+    "downloads",
+    "tabs"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["config.js", "lib/dom_capture.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "eeum Benchmark"
+  },
+  "side_panel": {
+    "default_path": "panel/panel.html"
+  }
+}

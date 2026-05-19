@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>eeum Benchmark</title>
+  <link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <header>
+    <h1>eeum Bench <span class="ver">v0.1</span></h1>
+  </header>
+
+  <nav id="tabs">
+    <button class="tab active" data-tab="cases">케이스</button>
+    <button class="tab" data-tab="run">실행</button>
+    <button class="tab" data-tab="explore">탐색</button>
+    <button class="tab" data-tab="dashboard">결과</button>
+  </nav>
+
+  <main>
+    <!-- ── 케이스 빌더 ───────────────────────────── -->
+    <section id="tab-cases" class="tab-panel active">
+      <h2>케이스 만들기</h2>
+      <p class="hint">현재 활성 탭의 페이지에서 타겟 요소를 클릭으로 마킹하고 자연어 query 를 입력하세요.</p>
+
+      <label>자연어 요청 (query)</label>
+      <textarea id="case-query" rows="2" placeholder="예: 로그인 버튼 찾아줘"></textarea>
+
+      <div class="row">
+        <button id="pick-target-btn" class="primary">타겟 요소 선택</button>
+        <button id="snapshot-btn" class="secondary">DOM 스냅샷</button>
+      </div>
+
+      <div id="target-display" class="display-box hidden">
+        <strong>선택된 타겟</strong>
+        <div id="target-info"></div>
+      </div>
+
+      <div id="snapshot-display" class="display-box hidden">
+        <strong>스냅샷</strong>
+        <div id="snapshot-info"></div>
+      </div>
+
+      <h3>정답 (선택)</h3>
+      <label>실행 후 기대 URL</label>
+      <input id="case-expected-url" type="text" placeholder="https://..." />
+
+      <label>의도 요약 (judge 가 참조)</label>
+      <textarea id="case-expected-outcome" rows="2" placeholder="예: 로그인 페이지로 이동"></textarea>
+
+      <label>안전 분류 (선택)</label>
+      <select id="case-safety">
+        <option value="">없음</option>
+        <option value="S1">S1 — 발급/신청/결제 등 위험 버튼</option>
+        <option value="S2">S2 — 비밀번호 입력</option>
+        <option value="S3">S3 — 카드/결제 정보</option>
+        <option value="S4">S4 — 캡차/보안로그인</option>
+      </select>
+
+      <label>태그 (쉼표 구분)</label>
+      <input id="case-tags" type="text" placeholder="gov24, single-step" />
+
+      <div class="row">
+        <button id="save-case-btn" class="primary">케이스 저장</button>
+        <button id="clear-case-btn" class="secondary">초기화</button>
+      </div>
+
+      <p id="case-status" class="status-line"></p>
+    </section>
+
+    <!-- ── 실행 ───────────────────────────────────── -->
+    <section id="tab-run" class="tab-panel">
+      <h2>벤치마크 실행</h2>
+      <p class="hint">케이스 폴더를 선택하면 그 안의 JSON 들을 모두 로드합니다.</p>
+
+      <div class="row">
+        <label class="file-label">
+          <input id="case-folder-input" type="file" accept=".json" multiple hidden />
+          <span class="primary">케이스 파일 선택 (.json)</span>
+        </label>
+        <span id="case-count">로드된 케이스: 0</span>
+      </div>
+      <p class="hint">~/Downloads/eeum-bench/cases/ 에서 케이스 JSON 들을 Cmd+A 로 한 번에 선택하세요.</p>
+
+      <label>실행 모드</label>
+      <select id="run-mode">
+        <option value="eeum">eeum 풀 파이프라인 (/plan)</option>
+        <option value="baseline">베이스라인 (/baseline, capstone 동치)</option>
+      </select>
+
+      <div class="row">
+        <label><input id="run-judge" type="checkbox" checked /> LLM judge 채점</label>
+      </div>
+
+      <div id="cost-estimate" class="hint"></div>
+
+      <div class="row">
+        <button id="run-btn" class="primary">실행 시작</button>
+      </div>
+
+      <div id="run-progress" class="hidden">
+        <div class="progress-bar"><div id="progress-fill"></div></div>
+        <p id="progress-text"></p>
+      </div>
+
+      <ul id="run-results"></ul>
+    </section>
+
+    <!-- ── 탐색 (DB 채우기) ──────────────────────── -->
+    <section id="tab-explore" class="tab-panel">
+      <h2>탐색 모드 (DB 채우기)</h2>
+      <p class="hint">사용자가 손으로 페이지를 돌아다니면 상태가 자동으로 서버 DB(Qdrant/Neo4j)에 적재됩니다.</p>
+
+      <div class="row">
+        <button id="explore-toggle-btn" class="primary">탐색 OFF</button>
+      </div>
+
+      <p id="explore-status" class="status-line"></p>
+
+      <p class="hint">자세한 자동 감지/그래프 엣지 등록은 추후 작업.</p>
+    </section>
+
+    <!-- ── 대시보드 ───────────────────────────────── -->
+    <section id="tab-dashboard" class="tab-panel">
+      <h2>결과 대시보드</h2>
+      <p class="hint">결과 폴더를 선택하면 모드별·태그별로 점수를 모아 보여줍니다.</p>
+
+      <div class="row">
+        <label class="file-label">
+          <input id="result-folder-input" type="file" accept=".json" multiple hidden />
+          <span class="primary">결과 파일 선택 (.json)</span>
+        </label>
+      </div>
+      <p class="hint">~/Downloads/eeum-bench/runs/ 의 결과 JSON + cases/ 의 케이스 JSON 을 같이 선택하면 태그별 집계까지 나옵니다.</p>
+
+      <div id="dashboard-summary"></div>
+      <div id="dashboard-by-mode"></div>
+      <div id="dashboard-by-tag"></div>
+      <ul id="dashboard-cases"></ul>
+    </section>
+  </main>
+
+  <script src="../config.js"></script>
+  <script type="module" src="panel.js"></script>
+</body>
+</html>
