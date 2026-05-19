@@ -53,13 +53,6 @@ Thumbs.db
 *.log
 logs/
 
-# Eval run outputs — regenerated each run
-server/eval/last-report.md
-server/eval/last-raw.json
-server/eval/dynamic-report.md
-server/eval/dynamic-raw.json
-server/eval/datasets/captures/
-
 # Docker / data volumes (로컬 바인드 사용 시)
 qdrant_storage/
 neo4j_data/
