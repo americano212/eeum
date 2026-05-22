@@ -45,6 +45,17 @@
     return !el.querySelector(REAL_CONTROL_SELECTOR);
   }
 
+  // 사용자가 타이핑한 값(이메일/아이디/비밀번호 등 PII)은 절대 읽지 않는다.
+  // value 가 라벨인 버튼류만 채택. 텍스트 입력류/textarea 는 빈 값.
+  const SAFE_VALUE_TYPES = new Set(["button", "submit", "reset", "checkbox", "radio"]);
+  function safeValue(el) {
+    if (el.tagName === "INPUT") {
+      const t = (el.getAttribute("type") || "text").toLowerCase();
+      return SAFE_VALUE_TYPES.has(t) ? el.value : "";
+    }
+    return "";
+  }
+
   function extractElements() {
     const nodes = Array.from(document.querySelectorAll(SELECTOR));
     const out = [];
@@ -53,7 +64,7 @@
       if (!isMeaningful(el)) continue;
       out.push({
         tag: el.tagName.toLowerCase(),
-        text: (el.innerText || el.value || "").trim().slice(0, 200),
+        text: (el.innerText || safeValue(el) || "").trim().slice(0, 200),
         aria_label: el.getAttribute("aria-label") || null,
         role: el.getAttribute("role") || null,
         xpath: getXPath(el),
