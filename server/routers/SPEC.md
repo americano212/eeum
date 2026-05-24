@@ -26,18 +26,18 @@
 - `POST /judge` → `JudgeResponse` — `judge.judge` 호출. **judge_tokens** 필드로 토큰 격리 (시스템 metrics 와 분리)
 
 ## `dom.py` (prefix `/dom`)
-- `POST /dom/check` → `DomCheckResponse` — Redis `state:` 키 존재 여부 → `cache_miss` bool
-- `POST /dom/upload` → `DomUploadResponse` — 요소 임베딩 → Qdrant upsert + Neo4j upsert_state + (referrer 있으면) add_edge + state_cached 마킹
+- `POST /dom/check` → `DomCheckResponse` — Neo4j `State` 노드 존재 여부 → `cache_miss` bool
+- `POST /dom/upload` → `DomUploadResponse` — 요소 임베딩 → Qdrant upsert + Neo4j upsert_state + (referrer 있으면) add_edge
 
 ## `admin.py` (prefix `/admin`)
-- `POST /admin/reset` → dict — Qdrant 컬렉션 드롭&재생성 + Neo4j 전체 DETACH DELETE + Redis state:* 삭제. 세션은 보존
+- `POST /admin/reset` → dict — Qdrant 컬렉션 드롭&재생성 + Neo4j 전체 DETACH DELETE. 세션/대화는 보존
 - `GET /admin/stats` → dict — `{qdrant_points, neo4j_states, neo4j_edges}`
 
 ## `conversations.py` — Postgres 대화 영속화
 - `POST /conversations/log` → `LogMessageResponse` — `(session_id, role, content, current_url?)` 적재. last_url 동기화
 - `GET /conversations/{session_id}` → `MessagesResponse` — 전체 메시지 시간순
 - `POST /conversations/sessions` → `SessionSummariesResponse` — 다건 세션 요약 (title=첫 user msg, last_activity, last_url)
-- `DELETE /conversations/{session_id}` → `DeleteSessionResponse` — 대화 + 메타 + Redis 세션 키 삭제
+- `DELETE /conversations/{session_id}` → `DeleteSessionResponse` — 대화 + 세션 메타 삭제
 
 ---
 

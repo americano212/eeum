@@ -1,65 +1,55 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import redis.asyncio as redis
-
 from core.config import settings
-
-
-_redis: redis.Redis | None = None
-
-
-def _client() -> redis.Redis:
-    global _redis
-    if _redis is None:
-        _redis = redis.from_url(settings.redis_url, decode_responses=True)
-    return _redis
-
-
-def _session_key(session_id: str) -> str:
-    return f"session:{session_id}"
-
-
-def _state_cache_key(state_id: str) -> str:
-    return f"state:{state_id}"
+from services import conversations
 
 
 async def touch_or_create(session_id: str | None) -> tuple[str, str]:
-    """Return (session_id, expires_at ISO). Issues a new session when missing/expired."""
-    client = _client()
-    if session_id:
-        exists = await client.exists(_session_key(session_id))
-        if not exists:
-            session_id = None
+    """Return (session_id, expires_at ISO). Issues a new session when missing/expired.
 
-    if not session_id:
-        session_id = str(uuid.uuid4())
-        await client.set(
-            _session_key(session_id),
-            "1",
-            ex=settings.session_ttl_seconds,
+    Postgres-backed sliding TTL: every call extends `expires_at`. Expired rows
+    are treated as missing — a fresh UUID is issued.
+    """
+    pool = conversations._require_pool()
+    new_expires = datetime.now(timezone.utc) + timedelta(
+        seconds=settings.session_ttl_seconds
+    )
+
+    async with pool.acquire() as conn:
+        if session_id:
+            row = await conn.fetchrow(
+                """
+                UPDATE session_meta
+                   SET expires_at = $2, updated_at = now()
+                 WHERE session_id = $1 AND expires_at > now()
+                RETURNING session_id
+                """,
+                session_id,
+                new_expires,
+            )
+            if row:
+                return session_id, new_expires.isoformat()
+
+        new_id = str(uuid.uuid4())
+        await conn.execute(
+            """
+            INSERT INTO session_meta (session_id, expires_at)
+            VALUES ($1, $2)
+            ON CONFLICT (session_id) DO UPDATE
+              SET expires_at = EXCLUDED.expires_at, updated_at = now()
+            """,
+            new_id,
+            new_expires,
         )
-    else:
-        await client.expire(_session_key(session_id), settings.session_ttl_seconds)
-
-    expires_at = (
-        datetime.now(timezone.utc) + timedelta(seconds=settings.session_ttl_seconds)
-    ).isoformat()
-    return session_id, expires_at
+        return new_id, new_expires.isoformat()
 
 
 async def delete(session_id: str) -> None:
-    client = _client()
-    await client.delete(_session_key(session_id))
-
-
-async def state_cached(state_id: str) -> bool:
-    client = _client()
-    return bool(await client.exists(_state_cache_key(state_id)))
-
-
-async def mark_state_cached(state_id: str) -> None:
-    client = _client()
-    await client.set(
-        _state_cache_key(state_id), "1", ex=settings.state_cache_ttl_seconds
-    )
+    """Drop the session row. Conversation log deletion is `conversations.delete_session`."""
+    pool = conversations._require_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM session_meta WHERE session_id = $1",
+            session_id,
+        )

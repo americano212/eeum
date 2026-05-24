@@ -84,5 +84,4 @@ class DeleteSessionResponse(BaseModel):
 @router.delete("/conversations/{session_id}", response_model=DeleteSessionResponse)
 async def delete_session(session_id: str) -> DeleteSessionResponse:
     await conversations.delete_session(session_id)
-    await session.delete(session_id)
     return DeleteSessionResponse(session_id=session_id, deleted=True)

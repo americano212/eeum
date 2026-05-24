@@ -16,12 +16,9 @@ class Settings(BaseSettings):
     neo4j_user: str = "neo4j"
     neo4j_password: str = "password"
 
-    redis_url: str = "redis://redis:6379/0"
-
     postgres_dsn: str = "postgresql://eeum:eeum@postgres:5432/eeum"
 
     session_ttl_seconds: int = 60 * 60 * 24 * 7
-    state_cache_ttl_seconds: int = 60 * 60
 
 
 settings = Settings()

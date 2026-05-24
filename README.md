@@ -8,7 +8,7 @@
 
 ```
 eeum/
-├── server/                    FastAPI + Qdrant + Neo4j + Redis + Postgres
+├── server/                    FastAPI + Qdrant + Neo4j + Postgres
 ├── extension/                 사용자용 익스텐션 (사이드패널 에이전트)
 └── benchmark-extension/       관리자용 익스텐션 (케이스 작성 + 벤치 실행 + DB 채우기)
 ```
@@ -217,7 +217,7 @@ eeum/
 │   │   ├── embedding.py        OpenAI text-embedding-3-small
 │   │   ├── vector_store.py     Qdrant
 │   │   ├── graph.py            Neo4j
-│   │   ├── session.py          Redis 세션 (TTL 7d)
+│   │   ├── session.py          Postgres 세션 (TTL 7d sliding via session_meta.expires_at)
 │   │   └── conversations.py    Postgres 대화 영속화
 │   ├── models/schemas.py
 │   ├── core/config.py
@@ -263,7 +263,6 @@ eeum/
 | `QDRANT_URL` | `http://qdrant:6333` | |
 | `NEO4J_URI` | `bolt://neo4j:7687` | |
 | `NEO4J_USER` / `NEO4J_PASSWORD` | `neo4j` / `password` | |
-| `REDIS_URL` | `redis://redis:6379/0` | |
 | `POSTGRES_DSN` | `postgresql://eeum:eeum@postgres:5432/eeum` | |
 
 ## 로컬 개발 (DB 만 Docker, API 는 호스트)
@@ -273,12 +272,11 @@ cd server
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-docker compose up -d qdrant neo4j redis postgres
+docker compose up -d qdrant neo4j postgres
 
 export OPENAI_API_KEY=sk-...
 export QDRANT_URL=http://localhost:6333
 export NEO4J_URI=bolt://localhost:7687
-export REDIS_URL=redis://localhost:6379/0
 export POSTGRES_DSN=postgresql://eeum:eeum@localhost:5432/eeum
 
 uvicorn main:app --reload --port 8000
@@ -294,9 +292,9 @@ uvicorn main:app --reload --port 8000
 
 ## 운영 메모
 
-- **세션 TTL**: 7일 sliding (Redis)
-- **state 캐시 TTL**: 1시간 (`/dom/check` 히트 판정용)
-- **Postgres 스키마**: `conversations(session_id, role, content, created_at)` + `session_meta(session_id, last_url, updated_at)` — 앱 시작 시 자동 마이그레이션
+- **세션 TTL**: 7일 sliding (Postgres `session_meta.expires_at`)
+- **state 캐시**: 별도 캐시 없음 — `/dom/check` 는 Neo4j 의 `State` 노드 존재 여부로 응답
+- **Postgres 스키마**: `conversations(session_id, role, content, created_at)` + `session_meta(session_id, last_url, expires_at, updated_at)` — 앱 시작 시 자동 마이그레이션
 - **Neo4j 리셋**: `/admin/reset` 권장. 수동은 `MATCH (n) DETACH DELETE n;`
 - **Qdrant 컬렉션**: 앱 시작 시 자동 생성 (`dom_elements`, COSINE, dim=1536)
 - **OpenAI 호환성 핀**: `requirements.txt` 에 `httpx<0.28` (openai 1.54.0 의 `proxies` 인자 회피)
@@ -306,7 +304,7 @@ uvicorn main:app --reload --port 8000
 | 증상 | 확인 |
 |---|---|
 | `OPENAI_API_KEY` 누락 | `server/.env` 또는 export |
-| `Connection refused` (qdrant/neo4j/redis/postgres) | `docker compose ps` |
+| `Connection refused` (qdrant/neo4j/postgres) | `docker compose ps` |
 | `proxies` TypeError | `pip install -r requirements.txt` 재실행 |
 | 벤치 익스텐션 케이스 저장 시 "Attempting to use a disconnected port object" | service worker 가 idle 로 죽음. 패널이 자동 재연결하지만 한 번 더 클릭 |
 | 벤치 익스텐션 폴더 선택 시 Chrome 강제 종료 | `webkitdirectory` 가 거대한 폴더를 enumerate — `Cmd+A` 다중 파일 선택만 사용 |

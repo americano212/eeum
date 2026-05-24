@@ -57,7 +57,7 @@ async def query(req: QueryRequest) -> QueryResponse:
         req.current_elements
         and req.current_url is not None
         and req.current_dom_hash is not None
-        and not await session.state_cached(req.current_state_id)
+        and not await graph.state_exists(req.current_state_id)
     ):
         element_texts = [
             embedding.element_text(e.tag, e.xpath, e.aria_label, e.text)
@@ -77,7 +77,6 @@ async def query(req: QueryRequest) -> QueryResponse:
         await graph.upsert_state(
             req.current_state_id, req.current_url, req.current_dom_hash
         )
-        await session.mark_state_cached(req.current_state_id)
 
     # 자연어 → {keyword, site_hint} 의도 추출. 짧은 LLM 호출(temp=0).
     # keyword 만 임베딩해서 군더더기/지시문 영향 제거.

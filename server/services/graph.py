@@ -31,6 +31,15 @@ async def close() -> None:
         _driver = None
 
 
+async def state_exists(state_id: str) -> bool:
+    async with _drv().session() as session:
+        result = await session.run(
+            "MATCH (s:State {state_id: $state_id}) RETURN s LIMIT 1",
+            state_id=state_id,
+        )
+        return await result.single() is not None
+
+
 async def upsert_state(state_id: str, url: str, dom_hash: str) -> None:
     async with _drv().session() as session:
         await session.run(

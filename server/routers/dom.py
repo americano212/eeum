@@ -15,7 +15,7 @@ router = APIRouter(prefix="/dom", tags=["dom"])
 @router.post("/check", response_model=DomCheckResponse)
 async def check(req: DomCheckRequest) -> DomCheckResponse:
     session_id, expires_at = await session.touch_or_create(req.session_id)
-    hit = await session.state_cached(req.state_id)
+    hit = await graph.state_exists(req.state_id)
     return DomCheckResponse(
         session_id=session_id,
         expires_at=expires_at,
@@ -54,8 +54,6 @@ async def upload(req: DomUploadRequest) -> DomUploadResponse:
             trigger_xpath=req.trigger_xpath,
             trigger_text=trigger_text,
         )
-
-    await session.mark_state_cached(req.state_id)
 
     return DomUploadResponse(
         session_id=session_id,

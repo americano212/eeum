@@ -25,12 +25,12 @@
 | 프레임워크 | FastAPI (async 기본, 자동 `/docs` 생성) |
 | VectorDB | Qdrant |
 | Graph DB | Neo4j |
-| 캐시 | Redis |
+| RDB | Postgres (대화 영속화 + 세션 메타) |
 | 임베딩 | OpenAI `text-embedding-3-small` (`openai` Python SDK) |
 | Neo4j 클라이언트 | `neo4j` Python 드라이버 |
 | Qdrant 클라이언트 | `qdrant-client` |
-| Redis 클라이언트 | `redis-py` (async) |
-| 컨테이너 | Docker Compose (Qdrant + Neo4j + Redis + FastAPI) |
+| Postgres 클라이언트 | `asyncpg` |
+| 컨테이너 | Docker Compose (Qdrant + Neo4j + Postgres + FastAPI) |
 
 ---
 
@@ -226,7 +226,7 @@ session_id: null 요청 수신
     │
     ▼
 UUID로 새 session_id 생성
-Redis에 세션 저장 (TTL 7일)
+Postgres session_meta 에 expires_at 저장 (TTL 7일)
     │
     ▼
 응답에 session_id + expires_at 포함
@@ -237,7 +237,7 @@ Redis에 세션 저장 (TTL 7일)
 - 세션당 최근 대화 10턴 보관 (query + response 1쌍 = 1턴)
 - 11번째 턴부터 가장 오래된 턴 제거 (sliding window)
 - 만료된 session_id 수신 시 새 session_id 발급 후 응답
-- 요청마다 Redis 세션 TTL을 7일로 갱신
+- 요청마다 session_meta.expires_at 을 +7일로 슬라이딩
 
 ### DOM 수신 처리 플로우
 
@@ -259,7 +259,7 @@ referrer_state_id 있으면 Neo4j에 엣지 추가
 (referrer_state_id → state_id, trigger_xpath/trigger_text 속성 포함)
     │
     ▼
-Redis에 state_id 저장 (TTL 1시간)
+(Neo4j 의 State 노드 존재 자체가 향후 /dom/check 의 cache 히트 신호)
 ```
 
 ### Qdrant 저장 구조
@@ -325,7 +325,7 @@ Qdrant 유사도 검색 (상위 5개)
     │
     ▼
 세션 컨텍스트에 이번 턴 추가 (sliding window, 최대 10턴)
-Redis 세션 TTL 7일로 갱신
+session_meta.expires_at 을 +7일로 슬라이딩
 ```
 
 ### 응답 구조

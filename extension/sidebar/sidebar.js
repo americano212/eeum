@@ -143,7 +143,7 @@
         if (d.error) {
           flashDbStatus(`실패: ${d.error}`, "error");
         } else {
-          flashDbStatus(`✅ 비웠습니다 (state 키 ${d.redis_state_keys_cleared}개 제거)`, "ok");
+          flashDbStatus("✅ 비웠습니다", "ok");
           refreshStats();
         }
         break;
@@ -464,7 +464,7 @@
 
   resetDbBtn.addEventListener("click", () => {
     const ok = confirm(
-      "Qdrant 포인트, Neo4j 노드/엣지, Redis state 캐시를 모두 비웁니다. 계속할까요?"
+      "Qdrant 포인트와 Neo4j 노드/엣지를 모두 비웁니다. 계속할까요?"
     );
     if (!ok) return;
     flashDbStatus("DB 비우는 중…", "warn");

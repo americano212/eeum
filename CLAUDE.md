@@ -37,7 +37,7 @@ private (`_` prefix) 함수와 한 모듈 내부에서만 쓰는 helper 는 SPEC
 ```
 [extension/]                  사용자 에이전트. 자연어 → 액션 실행
 [benchmark-extension/]        관리자 도구. 케이스 작성 / 벤치 실행 / 탐색
-[server/]                     FastAPI + Qdrant + Neo4j + Redis + Postgres
+[server/]                     FastAPI + Qdrant + Neo4j + Postgres
 ```
 
 핵심 엔드포인트:

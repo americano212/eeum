@@ -59,15 +59,14 @@
 ## `graph.py` — Neo4j
 - `ensure_constraints() -> None` — startup. `State.state_id` UNIQUE
 - `close() -> None` — shutdown
+- `state_exists(state_id) -> bool` — State 노드 존재 여부. `/dom/check` 히트 판정용
 - `upsert_state(state_id, url, dom_hash) -> None` — MERGE
 - `add_edge(from_state_id, to_state_id, trigger_xpath, trigger_text) -> None` — MERGE 엣지. 같은 (from,to) 면 trigger 갱신
 - `shortest_path(from_state_id, to_state_id) -> list[dict]` — 최대 hop 20. 각 hop = `{trigger_xpath, trigger_text, from_url, to_url}`
 
-## `session.py` — Redis 세션 + state 캐시
-- `touch_or_create(session_id: str | None) -> tuple[session_id, expires_at_iso]` — 없으면 발급. TTL 7d sliding
-- `delete(session_id: str) -> None`
-- `state_cached(state_id: str) -> bool` — `/dom/check` 히트 판정
-- `mark_state_cached(state_id: str) -> None` — TTL 1h
+## `session.py` — Postgres 세션 (TTL 7d sliding)
+- `touch_or_create(session_id: str | None) -> tuple[session_id, expires_at_iso]` — `session_meta.expires_at` UPSERT. 만료/없으면 새 UUID 발급
+- `delete(session_id: str) -> None` — `session_meta` row 삭제 (대화 로그는 `conversations.delete_session` 책임)
 
 ## `conversations.py` — Postgres 대화 영속화
 - `init() -> None` — startup. 스키마 자동 마이그레이션 (conversations + session_meta)

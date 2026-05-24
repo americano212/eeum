@@ -21,8 +21,12 @@ CREATE INDEX IF NOT EXISTS conversations_session_created_idx
 CREATE TABLE IF NOT EXISTS session_meta (
     session_id  TEXT PRIMARY KEY,
     last_url    TEXT,
+    expires_at  TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days'),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS session_meta_expires_idx
+    ON session_meta (expires_at);
 """
 
 
@@ -161,7 +165,7 @@ async def get_last_url(session_id: str) -> str | None:
 
 
 async def delete_session(session_id: str) -> None:
-    """대화 로그 + 세션 메타를 한 번에 삭제. Redis 키 제거는 호출자 책임."""
+    """대화 로그 + 세션 메타를 한 번에 삭제."""
     pool = _require_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
